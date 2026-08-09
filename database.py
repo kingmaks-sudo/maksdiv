@@ -46,6 +46,37 @@ def init_db():
     """)
 
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS confession_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            confession_id INTEGER NOT NULL,
+            room_code TEXT NOT NULL,
+            pseudo TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_code TEXT NOT NULL,
+            pseudo TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS profiles (
+            room_code TEXT NOT NULL,
+            pseudo TEXT NOT NULL,
+            avatar_path TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (room_code, pseudo)
+        )
+    """)
+
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS rooms (
             code TEXT PRIMARY KEY,
             created_at TEXT NOT NULL,
@@ -124,14 +155,50 @@ def save_confession(room_code, pseudo, message, anonymous=False):
 def get_confessions(room_code, limit=100):
     conn = get_connection()
     cur = conn.cursor()
+    # On récupère les `limit` confessions les plus RÉCENTES, mais on les
+    # renvoie triées du plus ancien au plus récent (ordre d'affichage type
+    # "fil de discussion", nouveauté en bas).
     cur.execute(
-        """SELECT * FROM confessions WHERE room_code = ?
-           ORDER BY created_at DESC LIMIT ?""",
+        """SELECT * FROM (
+               SELECT * FROM confessions WHERE room_code = ?
+               ORDER BY created_at DESC LIMIT ?
+           ) sub
+           ORDER BY sub.created_at ASC""",
         (room_code, limit),
     )
     rows = [dict(r) for r in cur.fetchall()]
+
+    if rows:
+        ids = [r["id"] for r in rows]
+        placeholders = ",".join("?" for _ in ids)
+        cur.execute(
+            f"""SELECT * FROM confession_comments
+                WHERE confession_id IN ({placeholders})
+                ORDER BY created_at ASC""",
+            ids,
+        )
+        comments_by_confession = {}
+        for c in cur.fetchall():
+            comments_by_confession.setdefault(c["confession_id"], []).append(dict(c))
+        for r in rows:
+            r["comments"] = comments_by_confession.get(r["id"], [])
+
     conn.close()
     return rows
+
+
+def save_comment(confession_id, room_code, pseudo, message):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO confession_comments (confession_id, room_code, pseudo, message, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (confession_id, room_code, pseudo, message, datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    comment_id = cur.lastrowid
+    conn.close()
+    return comment_id
 
 
 def register_room(code, expires_hours=None, max_players=None):
@@ -162,26 +229,75 @@ def is_room_expired(code):
     if not meta or not meta.get("expires_at"):
         return False
     return datetime.utcnow() > datetime.fromisoformat(meta["expires_at"])
-def get_all_rooms():
+
+
+# --- Discussion instantanée ---------------------------------------------------
+
+def save_chat_message(room_code, pseudo, message):
     conn = get_connection()
     cur = conn.cursor()
-    try:
-        cur.execute("SELECT * FROM rooms")
-        rooms = cur.fetchall()
-        return rooms
-    except Exception:
-        return []
-    finally:
-        conn.close()
-def delete_room(room_code):
+    cur.execute(
+        """INSERT INTO chat_messages (room_code, pseudo, message, created_at)
+           VALUES (?, ?, ?, ?)""",
+        (room_code, pseudo, message, datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    message_id = cur.lastrowid
+    conn.close()
+    return message_id
+
+
+def get_chat_messages(room_code, limit=200):
+    """Renvoie les `limit` derniers messages, triés du plus ancien au plus récent."""
     conn = get_connection()
     cur = conn.cursor()
-    try:
-        cur.execute("DELETE FROM rooms WHERE code = ?", (room_code,))
-        conn.commit()
-        return True
-    except Exception:
-        return False
-    finally:
-        conn.close()
-        
+    cur.execute(
+        """SELECT * FROM (
+               SELECT * FROM chat_messages WHERE room_code = ?
+               ORDER BY created_at DESC LIMIT ?
+           ) sub
+           ORDER BY sub.created_at ASC""",
+        (room_code, limit),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+# --- Profils / avatars ---------------------------------------------------------
+
+def set_profile_avatar(room_code, pseudo, avatar_path):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO profiles (room_code, pseudo, avatar_path, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(room_code, pseudo) DO UPDATE SET
+               avatar_path = excluded.avatar_path,
+               updated_at = excluded.updated_at""",
+        (room_code, pseudo, avatar_path, datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_profile_avatar(room_code, pseudo):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT avatar_path FROM profiles WHERE room_code = ? AND pseudo = ?",
+        (room_code, pseudo),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row["avatar_path"] if row else None
+
+
+def get_profiles_map(room_code):
+    """Renvoie { pseudo: avatar_path } pour tout le salon, en une seule requête."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT pseudo, avatar_path FROM profiles WHERE room_code = ?", (room_code,))
+    result = {r["pseudo"]: r["avatar_path"] for r in cur.fetchall()}
+    conn.close()
+    return result
