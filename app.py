@@ -308,40 +308,37 @@ from flask import render_template_string, request, Response
 # Mot de passe pour accéder à la page admin (à modifier)
 ADMIN_PASSWORD = "KEMA03062002"
 
-@app.route('/admin')
+@app.route('/admin', methods=['GET', 'POST'])
 def admin_dashboard():
-    # Vérification de l'authentification simple
     auth = request.authorization
-    if not auth or auth.password != ADMIN_PASSWORD: 
+    if not auth or auth.password != ADMIN_PASSWORD:
         return Response(
-            'Accès refusé. Veuillez entrer un mot de passe valide.', 401,
+            'Accès refusé.', 401,
             {'WWW-Authenticate': 'Basic realm="Accès Admin"'}
         )
 
-    # Récupération des salons en cours dans votre base de données
-    # (Adaptez 'get_all_rooms()' selon le nom de votre fonction dans database.py)
-    try:
-        from database import get_all_rooms
-        rooms = get_all_rooms()
-    except Exception as e:
-        rooms = []
+    from database import get_all_rooms, delete_room
 
-    # Interface HTML simple
+    # Action de suppression
+    if request.method == 'POST' and 'delete_code' in request.form:
+        delete_room(request.form['delete_code'])
+
+    rooms = get_all_rooms()
+
     html = """
     <!DOCTYPE html>
     <html lang="fr">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Panneau d'Administration</title>
+        <title>Panneau Admin Complete</title>
         <style>
-            body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; }
+            body { font-family: sans-serif; background: #121212; color: #fff; padding: 15px; }
             h1 { color: #a855f7; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #333; padding: 12px; text-align: left; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th, td { border: 1px solid #333; padding: 10px; text-align: left; font-size: 14px; }
             th { background: #1e1e2e; }
-            tr:nth-child(even) { background: #181825; }
-            .badge { background: #22c55e; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; }
+            .btn-del { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
         </style>
     </head>
     <body>
@@ -351,22 +348,25 @@ def admin_dashboard():
         <table>
             <thead>
                 <tr>
-                    <th>Code du Salon</th>
-                    <th>Créé le</th>
-                    <th>Statut</th>
+                    <th>Code</th>
+                    <th>Créateurs / Joueurs</th>
+                    <th>Action</th>
                 </tr>
             </thead>
             <tbody>
                 {% for room in rooms %}
                 <tr>
-                    <td><strong>{{ room.code }}</strong></td>
-                    <td>{{ room.created_at if room.created_at else 'N/A' }}</td>
-                    <td><span class="badge">Actif</span></td>
+                    <td><strong>{{ room['code'] }}</strong></td>
+                    <td>{{ room['players'] if 'players' in room.keys() and room['players'] else 'Aucun joueur inscrit' }}</td>
+                    <td>
+                        <form method="POST" style="display:inline;">
+                            <input type="hidden" name="delete_code" value="{{ room['code'] }}">
+                            <button type="submit" class="btn-del" onclick="return confirm('Supprimer ce salon ?')">Supprimer</button>
+                        </form>
+                    </td>
                 </tr>
                 {% else %}
-                <tr>
-                    <td colspan="3">Aucun salon actif pour le moment.</td>
-                </tr>
+                <tr><td colspan="3">Aucun salon actif.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
