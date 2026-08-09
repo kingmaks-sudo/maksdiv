@@ -1,0 +1,65 @@
+{
+  "verite": {
+    "leger": [
+      "Quel est ton pire mensonge pour éviter une soirée ?",
+      "Quelle est la chose la plus gênante dans ton historique de recherche ?",
+      "As-tu déjà eu le béguin pour l'ami(e) de quelqu'un dans ce groupe ?",
+      "Quelle appli tu ne pourrais jamais montrer à tes parents ?",
+      "Quel est ton plus grand regret amoureux ?",
+      "Qui, dans cette pièce, tu trouves le/la plus charismatique ?",
+      "Quel est le compliment qui t'a le plus marqué(e) ?",
+      "As-tu déjà fait semblant d'aimer un cadeau ?",
+      "Quelle est la chose la plus folle que tu as faite pour impressionner quelqu'un ?",
+      "Quel surnom secret donnerais-tu à ton crush actuel ?"
+    ],
+    "ose": [
+      "Quelle est la chose la plus audacieuse que tu as faite lors d'un premier rendez-vous ?",
+      "As-tu déjà embrassé quelqu'un dans cette salle, même en rêve ?",
+      "Quel est ton fantasme romantique le plus assumé (sans détails explicites) ?",
+      "Décris ton type de partenaire idéal en trois mots piquants.",
+      "Quelle est la drague la plus ridicule que tu aies tentée ?",
+      "As-tu déjà envoyé un message que tu regrettes à un(e) ex ?",
+      "Quel est le compliment le plus osé que tu aimerais recevoir ?",
+      "Raconte ton pire rendez-vous amoureux.",
+      "Qui ici pourrait facilement te faire craquer ?",
+      "Quelle est ta plus grande faiblesse en matière de séduction ?"
+    ],
+    "tres_ose": [
+      "Quelle est la limite que tu ne franchirais jamais en amour, même par curiosité ?",
+      "As-tu déjà eu un coup de cœur pour quelqu'un de 'interdit' (collègue, ami de couple, etc.) ?",
+      "Quel est le secret amoureux que tu n'as jamais révélé à personne ici ?",
+      "Décris la déclaration d'amour la plus intense que tu aies reçue ou faite.",
+      "Si tu devais choisir quelqu'un ici pour un rendez-vous fictif, ce serait qui et pourquoi ?",
+      "Quelle est la chose la plus vulnérable que tu aies partagée à un(e) partenaire ?",
+      "As-tu déjà menti sur tes sentiments pour protéger quelqu'un ?",
+      "Quel est ton plus grand tabou personnel en matière de relations ?"
+    ]
+  },
+  "action": {
+    "leger": [
+      "Imite la façon de parler de la personne à ta droite pendant 30 secondes.",
+      "Fais un compliment sincère à chaque personne du salon.",
+      "Raconte une blague, même mauvaise, sans rire.",
+      "Chante le refrain de ta chanson préférée.",
+      "Fais 10 pompes ou 20 secondes de danse improvisée.",
+      "Envoie un message vocal absurde à un ami (sans l'envoyer réellement si tu préfères).",
+      "Décris ta journée idéale en seulement des gestes.",
+      "Raconte ton souvenir d'enfance le plus drôle."
+    ],
+    "ose": [
+      "Fais un compliment 'charmeur' à la personne de ton choix dans le salon.",
+      "Envoie (ou fais semblant d'envoyer) un message flirty à ton crush.",
+      "Raconte la meilleure technique de drague que tu connaisses, en la mimant.",
+      "Propose un 'rendez-vous imaginaire' à quelqu'un du salon en incarnant un personnage.",
+      "Fais deviner ton crush idéal en donnant 3 indices seulement.",
+      "Improvise 15 secondes de discours de séduction absurde."
+    ],
+    "tres_ose": [
+      "Révèle la chose la plus romantique que tu aies faite pour quelqu'un.",
+      "Partage un souvenir intime (non explicite) qui t'a marqué émotionnellement.",
+      "Décris, sans donner de nom, ta plus belle histoire d'amour en 3 phrases.",
+      "Improvise une scène de rupture ou de déclaration avec quelqu'un du salon (jeu de rôle léger, consenti).",
+      "Partage ta plus grande insécurité en amour."
+    ]
+  }
+}

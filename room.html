@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Salon {{ code }} — Action ou Vérité</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<!-- Écran de saisie du pseudo -->
+<div id="pseudo-overlay" class="overlay">
+    <div class="overlay-card">
+        <h2>Rejoindre le salon {{ code }}</h2>
+        <input type="text" id="pseudo-input" maxlength="24" placeholder="Choisis ton pseudo">
+        <button id="pseudo-submit" class="btn-primary">Entrer</button>
+        <p id="pseudo-error" class="alert-error" style="display:none;"></p>
+    </div>
+</div>
+
+<div id="app" class="app-wrapper" style="display:none;">
+    <header class="app-header">
+        <div class="room-code-badge">Salon : <strong>{{ code }}</strong></div>
+        <div class="my-pseudo" id="my-pseudo-label"></div>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab-btn active" data-tab="tab-game">🍾 Action/Vérité</button>
+        <button class="tab-btn" data-tab="tab-confess">💬 Confessions</button>
+        <button class="tab-btn" data-tab="tab-presence">🟢 En ligne</button>
+        <button class="tab-btn" data-tab="tab-invite">📨 Inviter</button>
+    </nav>
+
+    <!-- Onglet 1 : Action ou Vérité -->
+    <section id="tab-game" class="tab-panel active">
+        <div class="bottle-zone">
+            <div class="bottle-container">
+                <div id="bottle" class="bottle">🍾</div>
+            </div>
+            <button id="spin-btn" class="btn-primary">Tourner la bouteille</button>
+            <p id="spin-result" class="spin-result"></p>
+        </div>
+
+        <div id="choice-zone" class="choice-zone" style="display:none;">
+            <p>Choisis :</p>
+            <div class="intensity-picker">
+                <label><input type="radio" name="intensity" value="leger" checked> Léger</label>
+                <label><input type="radio" name="intensity" value="ose"> Osé</label>
+                <label><input type="radio" name="intensity" value="tres_ose"> Très osé</label>
+            </div>
+            <div class="choice-buttons">
+                <button class="btn-primary" id="btn-action">Action</button>
+                <button class="btn-secondary" id="btn-verite">Vérité</button>
+            </div>
+        </div>
+
+        <div id="question-card" class="question-card" style="display:none;"></div>
+    </section>
+
+    <!-- Onglet 2 : Confessions -->
+    <section id="tab-confess" class="tab-panel">
+        <p class="tab-description">Partage librement quelque chose sur toi. Espace d'auto-expression volontaire : on parle de soi, pas des autres.</p>
+        <div class="confess-form">
+            <textarea id="confess-input" maxlength="500" placeholder="Écris ta confession ou ton partage..."></textarea>
+            <div class="confess-controls">
+                <label><input type="checkbox" id="confess-anon"> Publier en anonyme</label>
+                <button id="confess-submit" class="btn-primary">Publier</button>
+            </div>
+        </div>
+        <div id="confess-list" class="confess-list"></div>
+    </section>
+
+    <!-- Onglet 3 : Présence -->
+    <section id="tab-presence" class="tab-panel">
+        <h3>Participants connectés</h3>
+        <ul id="presence-list" class="presence-list"></ul>
+    </section>
+
+    <!-- Onglet 4 : Invitation -->
+    <section id="tab-invite" class="tab-panel">
+        <h3>Inviter des participants</h3>
+        <div class="invite-box">
+            <img src="{{ url_for('room_qrcode', code=code) }}" alt="QR code d'invitation" class="qr-img">
+            <div class="invite-link-row">
+                <input type="text" id="invite-link" value="{{ join_url }}" readonly>
+                <button id="copy-link-btn" class="btn-secondary">Copier</button>
+            </div>
+            <p class="invite-code-display">Ou code du salon : <strong>{{ code }}</strong></p>
+            {% if max_players %}
+            <p class="invite-places">Places max : {{ max_players }}</p>
+            {% endif %}
+        </div>
+    </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const ROOM_CODE = "{{ code }}";
+</script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
