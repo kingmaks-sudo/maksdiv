@@ -289,3 +289,22 @@ socket.on('action_proof_received', (data) => {
     document.getElementById('action-proof-log').style.display = 'block';
     document.getElementById('proof-image').src = data.image;
 });
+socket.on('question_drawn', (data) => {
+    // Masque l'ancienne carte si elle existe
+    const oldCard = document.getElementById('question-card');
+    if (oldCard) oldCard.style.display = 'none';
+
+    // Affiche le titre et la question dans la nouvelle zone
+    document.getElementById('question-title').innerText = (data.type === 'verite' ? '🗣️ Vérité' : '⚡ Action') + ' — ' + data.player;
+    document.getElementById('question-text').innerText = data.question;
+    document.getElementById('game-zone').style.display = 'block';
+
+    // Affiche la section correspondante
+    if (data.type === 'verite') {
+        document.getElementById('verite-section').style.display = 'block';
+        document.getElementById('action-section').style.display = 'none';
+    } else {
+        document.getElementById('verite-section').style.display = 'none';
+        document.getElementById('action-section').style.display = 'block';
+    }
+});
