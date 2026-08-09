@@ -4,4 +4,4 @@ python-socketio==5.11.2
 qrcode==7.4.2
 Pillow==12.3.0
 gunicorn==22.0.0
-eventlet==0.36.1
+eventlet==0.40.0
