@@ -137,3 +137,21 @@ document.addEventListener('DOMContentLoaded', () => {
         <p id="last-answer-text" style="font-style:italic; color:#e2e8f0;"></p>
     </div>
 </div>
+<!-- Section Action (Caméra) -->
+<div id="action-section" style="display:none; margin-top:15px; text-align:center;">
+    <p style="color:#eab308; font-weight:bold;">Réalise ton action devant la caméra !</p>
+    
+    <!-- Flux caméra en direct -->
+    <video id="camera-stream" autoplay playsinline style="width:100%; max-width:300px; border-radius:12px; border:2px solid #a855f7; background:#000; display:none;"></video>
+    <canvas id="photo-canvas" style="display:none;"></canvas>
+
+    <br>
+    <button id="btn-start-cam" onclick="startCamera()" style="background:#3b82f6; color:#fff; border:none; padding:10px 15px; border-radius:8px; margin-top:8px; cursor:pointer;">📷 Allumer la caméra</button>
+    <button id="btn-take-photo" onclick="captureAndSend()" style="background:#ef4444; color:#fff; border:none; padding:10px 15px; border-radius:8px; margin-top:8px; display:none; cursor:pointer;">📸 Prendre et envoyer la preuve</button>
+</div>
+
+<!-- Affichage de la preuve chez tous les joueurs -->
+<div id="action-proof-log" style="margin-top:20px; text-align:center; display:none;">
+    <h4>Preuve de l'action réalisée :</h4>
+    <img id="proof-image" src="" style="width:100%; max-width:300px; border-radius:12px; border:2px solid #22c55e;">
+</div>
