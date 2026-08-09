@@ -23,7 +23,7 @@ from datetime import datetime
 import qrcode
 from flask import (
     Flask, render_template, request, redirect, url_for,
-    session, send_file, jsonify, abort
+    session, send_file, send_from_directory, jsonify, abort
 )
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
@@ -101,6 +101,17 @@ def get_players_list(code):
 @app.route("/")
 def home():
     return render_template("index.html")
+
+
+@app.route("/sw.js")
+def service_worker():
+    # Servi depuis la racine (et pas /static/sw.js) pour que la portée du
+    # service worker couvre tout le site, pas seulement /static/.
+    response = send_from_directory(
+        os.path.join(app.root_path, "static"), "sw.js", mimetype="application/javascript"
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @app.route("/create_room", methods=["POST"])
