@@ -162,3 +162,14 @@ def is_room_expired(code):
     if not meta or not meta.get("expires_at"):
         return False
     return datetime.utcnow() > datetime.fromisoformat(meta["expires_at"])
+def get_all_rooms():
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT * FROM rooms")
+        rooms = cur.fetchall()
+        return rooms
+    except Exception:
+        return []
+    finally:
+        conn.close()
