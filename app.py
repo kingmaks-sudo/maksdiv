@@ -374,3 +374,11 @@ def admin_dashboard():
     </html>
     """
     return render_template_string(html, rooms=rooms)
+@socketio.on('send_verite_answer')
+def handle_verite_answer(data):
+    room = data.get('room')
+    answer = data.get('answer')
+    player = session.get('pseudo', 'Un joueur')
+    
+    # Broadcast de la réponse à tous les membres de la pièce
+    emit('verite_answer_received', {'player': player, 'answer': answer}, room=room)
