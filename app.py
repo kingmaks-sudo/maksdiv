@@ -303,3 +303,74 @@ def handle_disconnect():
 if __name__ == "__main__":
     print("Serveur lancé sur http://localhost:5000")
     socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+from flask import render_template_string, request, Response
+
+# Mot de passe pour accéder à la page admin (à modifier)
+ADMIN_PASSWORD = "KEMA03062002"
+
+@app.route('/admin')
+def admin_dashboard():
+    # Vérification de l'authentification simple
+    auth = request.authorization
+    if not auth or auth.password != ADMIN_PASSWORD: 
+        return Response(
+            'Accès refusé. Veuillez entrer un mot de passe valide.', 401,
+            {'WWW-Authenticate': 'Basic realm="Accès Admin"'}
+        )
+
+    # Récupération des salons en cours dans votre base de données
+    # (Adaptez 'get_all_rooms()' selon le nom de votre fonction dans database.py)
+    try:
+        from database import get_all_rooms
+        rooms = get_all_rooms()
+    except Exception as e:
+        rooms = []
+
+    # Interface HTML simple
+    html = """
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Panneau d'Administration</title>
+        <style>
+            body { font-family: sans-serif; background: #121212; color: #fff; padding: 20px; }
+            h1 { color: #a855f7; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #333; padding: 12px; text-align: left; }
+            th { background: #1e1e2e; }
+            tr:nth-child(even) { background: #181825; }
+            .badge { background: #22c55e; padding: 4px 8px; border-radius: 4px; font-size: 0.8em; }
+        </style>
+    </head>
+    <body>
+        <h1>📊 Tableau de bord Admin</h1>
+        <p><strong>Salons actifs :</strong> {{ rooms|length }}</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Code du Salon</th>
+                    <th>Créé le</th>
+                    <th>Statut</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for room in rooms %}
+                <tr>
+                    <td><strong>{{ room.code }}</strong></td>
+                    <td>{{ room.created_at if room.created_at else 'N/A' }}</td>
+                    <td><span class="badge">Actif</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3">Aucun salon actif pour le moment.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </body>
+    </html>
+    """
+    return render_template_string(html, rooms=rooms)
