@@ -38,6 +38,7 @@ socket.on("joined", (data) => {
         socket.emit("heartbeat", { code: ROOM_CODE });
     }, 20000);
     loadConfessions();
+    loadChatMessages();
 });
 
 socket.on("error_message", (data) => {
@@ -376,20 +377,102 @@ confessSubmit.addEventListener("click", () => {
 });
 
 socket.on("new_confession", (data) => {
-    prependConfession(data.pseudo, data.message, data.created_at);
+    appendConfession(data.id, data.pseudo, data.message, data.created_at, []);
+    scrollConfessionsToBottom();
 });
 
-function prependConfession(pseudo, message, time) {
+socket.on("new_comment", (data) => {
+    appendComment(data.confession_id, data.pseudo, data.message, data.created_at);
+    scrollConfessionsToBottom();
+});
+
+// Ajoute une confession EN BAS de la liste (les plus récentes apparaissent
+// en dernier, comme un fil de discussion classique).
+function appendConfession(id, pseudo, message, time, comments) {
     const item = document.createElement("div");
     item.className = "confess-item";
+    item.dataset.confessionId = id;
     item.innerHTML = `
         <div class="c-header">
             <span class="c-pseudo">${escapeHtml(pseudo)}</span>
             <span>${time || ""}</span>
         </div>
         <div class="c-body">${escapeHtml(message)}</div>
+        <div class="c-actions">
+            <button class="c-action-btn c-mention-btn" title="Mentionner cette personne">🔗 Mentionner</button>
+            <button class="c-action-btn c-comment-toggle-btn" title="Commenter">💬 Commenter</button>
+        </div>
+        <div class="c-comments"></div>
+        <div class="c-comment-form" style="display:none;">
+            <input type="text" class="c-comment-input" maxlength="300" placeholder="Écris un commentaire...">
+            <button class="btn-secondary c-comment-send-btn">Envoyer</button>
+        </div>
     `;
-    confessList.prepend(item);
+
+    item.querySelector(".c-mention-btn").addEventListener("click", () => {
+        mentionConfession(pseudo);
+    });
+
+    const toggleBtn = item.querySelector(".c-comment-toggle-btn");
+    const form = item.querySelector(".c-comment-form");
+    toggleBtn.addEventListener("click", () => {
+        form.style.display = form.style.display === "none" ? "flex" : "none";
+        if (form.style.display === "flex") form.querySelector(".c-comment-input").focus();
+    });
+
+    const sendCommentBtn = item.querySelector(".c-comment-send-btn");
+    const commentInput = item.querySelector(".c-comment-input");
+    const sendComment = () => {
+        const message2 = commentInput.value.trim();
+        if (!message2) return;
+        socket.emit("post_comment", {
+            code: ROOM_CODE,
+            confession_id: id,
+            pseudo: myPseudo,
+            message: message2,
+        });
+        commentInput.value = "";
+    };
+    sendCommentBtn.addEventListener("click", sendComment);
+    commentInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") sendComment();
+    });
+
+    confessList.appendChild(item);
+
+    (comments || []).forEach((c) => {
+        const ctime = new Date(c.created_at + "Z").toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+        appendComment(id, c.pseudo, c.message, ctime);
+    });
+}
+
+// Insère une référence "@pseudo" dans le champ de saisie principal, pour
+// écrire une nouvelle confession qui mentionne cette personne.
+function mentionConfession(pseudo) {
+    document.querySelector('.tab-btn[data-tab="tab-confess"]').click();
+    const prefix = `@${pseudo} `;
+    if (!confessInput.value.startsWith(prefix)) {
+        confessInput.value = prefix + confessInput.value;
+    }
+    confessInput.focus();
+    confessInput.setSelectionRange(confessInput.value.length, confessInput.value.length);
+}
+
+function appendComment(confessionId, pseudo, message, time) {
+    const parent = confessList.querySelector(`.confess-item[data-confession-id="${confessionId}"] .c-comments`);
+    if (!parent) return;
+    const item = document.createElement("div");
+    item.className = "c-comment-item";
+    item.innerHTML = `
+        <span class="c-comment-pseudo">${escapeHtml(pseudo)}</span>
+        <span class="c-comment-body">${escapeHtml(message)}</span>
+        <span class="c-comment-time">${time || ""}</span>
+    `;
+    parent.appendChild(item);
+}
+
+function scrollConfessionsToBottom() {
+    confessList.scrollTop = confessList.scrollHeight;
 }
 
 function loadConfessions() {
@@ -397,14 +480,78 @@ function loadConfessions() {
         .then((r) => r.json())
         .then((rows) => {
             confessList.innerHTML = "";
+            // Le serveur renvoie déjà les confessions triées du plus ancien
+            // au plus récent (avec leurs commentaires imbriqués).
             rows.forEach((row) => {
                 const displayName = row.anonymous ? "Anonyme" : row.pseudo;
                 const time = new Date(row.created_at + "Z").toLocaleTimeString("fr-FR", {
                     hour: "2-digit",
                     minute: "2-digit",
                 });
-                prependConfession(displayName, row.message, time);
+                appendConfession(row.id, displayName, row.message, time, row.comments);
             });
+            scrollConfessionsToBottom();
+        });
+}
+
+// ---------- Onglet 3 : Discussion instantanée ----------
+const chatList = document.getElementById("chat-list");
+const chatInput = document.getElementById("chat-input");
+const chatSubmit = document.getElementById("chat-submit");
+
+function sendChatMessage() {
+    const message = chatInput.value.trim();
+    if (!message) return;
+    socket.emit("send_chat_message", { code: ROOM_CODE, message });
+    chatInput.value = "";
+}
+
+chatSubmit.addEventListener("click", sendChatMessage);
+chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendChatMessage();
+});
+
+socket.on("new_chat_message", (data) => {
+    appendChatMessage(data.pseudo, data.avatar_url, data.message, data.created_at);
+    scrollChatToBottom();
+});
+
+function appendChatMessage(pseudo, avatarUrl, message, time) {
+    const mine = pseudo === myPseudo;
+    const item = document.createElement("div");
+    item.className = "chat-msg" + (mine ? " chat-msg-mine" : "");
+    item.innerHTML = `
+        <div class="chat-avatar">${avatarUrl ? `<img src="${avatarUrl}" alt="">` : escapeHtml(initials(pseudo))}</div>
+        <div class="chat-bubble">
+            ${mine ? "" : `<div class="chat-pseudo">${escapeHtml(pseudo)}</div>`}
+            <div class="chat-text">${escapeHtml(message)}</div>
+            <div class="chat-time">${time || ""}</div>
+        </div>
+    `;
+    chatList.appendChild(item);
+}
+
+function initials(pseudo) {
+    return (pseudo || "?").trim().charAt(0).toUpperCase();
+}
+
+function scrollChatToBottom() {
+    chatList.scrollTop = chatList.scrollHeight;
+}
+
+function loadChatMessages() {
+    fetch(`/room/${ROOM_CODE}/messages`)
+        .then((r) => r.json())
+        .then((rows) => {
+            chatList.innerHTML = "";
+            rows.forEach((row) => {
+                const time = new Date(row.created_at + "Z").toLocaleTimeString("fr-FR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                });
+                appendChatMessage(row.pseudo, row.avatar_url, row.message, time);
+            });
+            scrollChatToBottom();
         });
 }
 
@@ -435,6 +582,36 @@ document.getElementById("copy-link-btn").addEventListener("click", () => {
         setTimeout(() => (btn.textContent = original), 1500);
     });
 });
+
+(function setupShare() {
+    const inviteLink = document.getElementById("invite-link").value;
+    const shareText = `Rejoins mon salon "Action ou Vérité" ! Code : ${ROOM_CODE}`;
+    const fullMessage = `${shareText} ${inviteLink}`;
+
+    const nativeShareBtn = document.getElementById("native-share-btn");
+    nativeShareBtn.addEventListener("click", async () => {
+        if (navigator.share) {
+            try {
+                await navigator.share({ title: "Action ou Vérité", text: shareText, url: inviteLink });
+            } catch (e) {
+                // Annulé par l'utilisateur ou non supporté : rien à faire.
+            }
+        } else {
+            // Pas de support natif (souvent le cas sur desktop) : on affiche
+            // les liens de partage directs juste en dessous.
+            document.getElementById("share-links").scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+    });
+
+    document.getElementById("share-whatsapp").href =
+        `https://wa.me/?text=${encodeURIComponent(fullMessage)}`;
+    document.getElementById("share-facebook").href =
+        `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(inviteLink)}`;
+    document.getElementById("share-telegram").href =
+        `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent(shareText)}`;
+    document.getElementById("share-x").href =
+        `https://twitter.com/intent/tweet?text=${encodeURIComponent(fullMessage)}`;
+})();
 
 // ---------- Utilitaire ----------
 function escapeHtml(str) {
