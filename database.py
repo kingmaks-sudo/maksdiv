@@ -173,3 +173,15 @@ def get_all_rooms():
         return []
     finally:
         conn.close()
+def delete_room(room_code):
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM rooms WHERE code = ?", (room_code,))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+        
