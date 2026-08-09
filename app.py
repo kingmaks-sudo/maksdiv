@@ -382,3 +382,11 @@ def handle_verite_answer(data):
     
     # Broadcast de la réponse à tous les membres de la pièce
     emit('verite_answer_received', {'player': player, 'answer': answer}, room=room)
+@socketio.on('send_action_proof')
+def handle_action_proof(data):
+    room = data.get('room')
+    image_data = data.get('image')
+    player = session.get('pseudo', 'Un joueur')
+    
+    # Transmet la photo reçue à l'ensemble de la pièce
+    emit('action_proof_received', {'player': player, 'image': image_data}, room=room)
