@@ -286,6 +286,81 @@ body {
     color: var(--text-muted);
 }
 
+/* ---------- Manche en cours (vérité / action) ---------- */
+.round-zone {
+    margin-top: 18px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+
+.round-instructions {
+    margin: 0 0 14px;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+#round-action-zone textarea {
+    width: 100%;
+    min-height: 90px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text);
+    resize: vertical;
+    font-family: inherit;
+    margin-bottom: 12px;
+}
+
+#truth-answer-submit,
+#action-send-btn {
+    width: 100%;
+}
+
+.waiting-msg {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    margin: 0;
+}
+
+#camera-preview {
+    width: 100%;
+    max-height: 360px;
+    border-radius: 10px;
+    background: #000;
+    object-fit: cover;
+    margin-bottom: 14px;
+}
+
+.camera-controls {
+    display: flex;
+    gap: 12px;
+}
+
+.camera-controls button { flex: 1; margin-top: 0; }
+
+.round-result {
+    margin-top: 18px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--success);
+    border-radius: var(--radius);
+    padding: 20px;
+    text-align: center;
+    line-height: 1.5;
+}
+
+.round-result .truth-answer {
+    margin-top: 12px;
+    font-style: italic;
+    color: var(--text);
+    background: var(--bg-card);
+    border-radius: 10px;
+    padding: 12px;
+}
+
 /* ---------- Confessions ---------- */
 .confess-form textarea {
     width: 100%;
