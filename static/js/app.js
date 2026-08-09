@@ -562,13 +562,59 @@ socket.on("presence_update", (data) => {
     presenceList.innerHTML = "";
     data.players.forEach((p) => {
         const li = document.createElement("li");
-        li.innerHTML = `<span class="status-dot ${p.status === "inactif" ? "inactif" : ""}"></span> ${escapeHtml(p.pseudo)}`;
+        li.innerHTML = `
+            <span class="status-dot ${p.status === "inactif" ? "inactif" : ""}"></span>
+            <span class="presence-avatar">${p.avatar_url ? `<img src="${p.avatar_url}" alt="">` : escapeHtml(initials(p.pseudo))}</span>
+            ${escapeHtml(p.pseudo)}
+        `;
         presenceList.appendChild(li);
     });
+
+    // Met à jour mon propre aperçu si mon avatar a changé (ex: après upload).
+    const me = data.players.find((p) => p.pseudo === myPseudo);
+    if (me) setMyAvatarPreview(me.avatar_url);
 });
 
 socket.on("system_message", (data) => {
     console.log(data.message);
+});
+
+// ---------- Onglet 4 (Présence) : photo de profil ----------
+const avatarInput = document.getElementById("avatar-input");
+const avatarPreview = document.getElementById("my-avatar-preview");
+const avatarError = document.getElementById("avatar-error");
+
+function setMyAvatarPreview(avatarUrl) {
+    avatarPreview.innerHTML = avatarUrl
+        ? `<img src="${avatarUrl}" alt="">`
+        : escapeHtml(initials(myPseudo));
+}
+
+avatarInput.addEventListener("change", () => {
+    const file = avatarInput.files[0];
+    if (!file) return;
+    avatarError.style.display = "none";
+
+    const formData = new FormData();
+    formData.append("pseudo", myPseudo);
+    formData.append("avatar", file);
+
+    fetch(`/room/${ROOM_CODE}/set_avatar`, { method: "POST", body: formData })
+        .then((r) => r.json())
+        .then((res) => {
+            if (!res.ok) {
+                avatarError.textContent = res.error || "Erreur lors de l'envoi.";
+                avatarError.style.display = "block";
+                return;
+            }
+            setMyAvatarPreview(res.avatar_url);
+            // Le serveur diffuse aussi "presence_update" à tout le salon,
+            // donc le chat et la liste des participants se mettent à jour tout seuls.
+        })
+        .catch(() => {
+            avatarError.textContent = "Erreur réseau lors de l'envoi.";
+            avatarError.style.display = "block";
+        });
 });
 
 // ---------- Onglet 4 : Invitation ----------
