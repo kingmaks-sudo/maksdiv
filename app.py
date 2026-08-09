@@ -45,6 +45,11 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "webm", "mp4", "mov"}
 ACTION_MAX_DURATION = 60  # secondes, limite annoncée côté client
 
+# --- Upload des photos de profil --------------------------------------------
+AVATAR_FOLDER = os.path.join(app.root_path, "static", "avatars")
+os.makedirs(AVATAR_FOLDER, exist_ok=True)
+ALLOWED_AVATAR_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+
 # --- État en mémoire des salons actifs -------------------------------------
 # ROOMS[code] = {
 #   "players": { sid: {"pseudo": str, "last_seen": ts, "status": "online"} },
@@ -83,7 +88,11 @@ def get_players_list(code):
     players = []
     for sid, info in room["players"].items():
         status = "online" if (now - info["last_seen"]) < HEARTBEAT_TIMEOUT else "inactif"
-        players.append({"pseudo": info["pseudo"], "status": status})
+        players.append({
+            "pseudo": info["pseudo"],
+            "status": status,
+            "avatar_url": info.get("avatar_url"),
+        })
     return players
 
 
@@ -218,6 +227,45 @@ def handle_too_large(e):
     return jsonify({"ok": False, "error": "Fichier trop volumineux (30 Mo max)."}), 413
 
 
+@app.route("/room/<code>/set_avatar", methods=["POST"])
+def set_avatar(code):
+    """Upload (ou remplacement) de la photo de profil d'un joueur du salon."""
+    code = code.upper()
+    room = ROOMS.get(code)
+    if not room:
+        return jsonify({"ok": False, "error": "Salon introuvable."}), 404
+
+    pseudo = (request.form.get("pseudo") or "").strip()[:24]
+    if not pseudo:
+        return jsonify({"ok": False, "error": "Pseudo requis."}), 400
+
+    file = request.files.get("avatar")
+    if not file or file.filename == "":
+        return jsonify({"ok": False, "error": "Aucun fichier reçu."}), 400
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_AVATAR_EXTENSIONS:
+        return jsonify({"ok": False, "error": "Format d'image non autorisé (jpg, png, webp)."}), 400
+
+    unique_name = secure_filename(f"{code}_{pseudo}_{uuid.uuid4().hex}.{ext}")
+    room_dir = os.path.join(AVATAR_FOLDER, code)
+    os.makedirs(room_dir, exist_ok=True)
+    file.save(os.path.join(room_dir, unique_name))
+
+    avatar_url = url_for("static", filename=f"avatars/{code}/{unique_name}")
+
+    # Persisté en base pour survivre aux redémarrages/reconnexions.
+    db.set_profile_avatar(code, pseudo, avatar_url)
+
+    # Mise à jour immédiate de l'état en mémoire pour ce joueur (peu importe son sid).
+    for info in room["players"].values():
+        if info["pseudo"].lower() == pseudo.lower():
+            info["avatar_url"] = avatar_url
+
+    socketio.emit("presence_update", {"players": get_players_list(code)}, to=code)
+    return jsonify({"ok": True, "avatar_url": avatar_url})
+
+
 # --- Événements Socket.IO ----------------------------------------------------
 
 @socketio.on("join_room_event")
@@ -254,6 +302,7 @@ def handle_join(data):
         "pseudo": pseudo,
         "last_seen": time.time(),
         "status": "online",
+        "avatar_url": db.get_profile_avatar(code, pseudo),
     }
     session["pseudo"] = pseudo
     session["code"] = code
@@ -422,13 +471,38 @@ def handle_confession(data):
     if not room_exists(code) or not message:
         return
 
-    db.save_confession(code, pseudo, message, anonymous)
+    confession_id = db.save_confession(code, pseudo, message, anonymous)
     display_name = "Anonyme" if anonymous else pseudo
 
     emit(
         "new_confession",
         {
+            "id": confession_id,
             "pseudo": display_name,
+            "message": message,
+            "created_at": datetime.utcnow().strftime("%H:%M"),
+        },
+        to=code,
+    )
+
+
+@socketio.on("post_comment")
+def handle_comment(data):
+    code = (data.get("code") or "").upper()
+    pseudo = (data.get("pseudo") or "Anonyme").strip()[:24]
+    message = (data.get("message") or "").strip()[:300]
+    confession_id = data.get("confession_id")
+
+    if not room_exists(code) or not message or not confession_id:
+        return
+
+    db.save_comment(confession_id, code, pseudo, message)
+
+    emit(
+        "new_comment",
+        {
+            "confession_id": confession_id,
+            "pseudo": pseudo,
             "message": message,
             "created_at": datetime.utcnow().strftime("%H:%M"),
         },
