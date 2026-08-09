@@ -173,6 +173,19 @@ def room_confessions(code):
     return jsonify(db.get_confessions(code))
 
 
+@app.route("/room/<code>/messages")
+def room_messages(code):
+    """Historique du chat instantané, avec l'avatar actuel de chaque pseudo."""
+    code = code.upper()
+    if not room_exists(code):
+        abort(404)
+    messages = db.get_chat_messages(code)
+    avatars = db.get_profiles_map(code)
+    for m in messages:
+        m["avatar_url"] = avatars.get(m["pseudo"])
+    return jsonify(messages)
+
+
 def allowed_action_file(filename):
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     return ext in ALLOWED_EXTENSIONS
@@ -503,6 +516,37 @@ def handle_comment(data):
         {
             "confession_id": confession_id,
             "pseudo": pseudo,
+            "message": message,
+            "created_at": datetime.utcnow().strftime("%H:%M"),
+        },
+        to=code,
+    )
+
+
+@socketio.on("send_chat_message")
+def handle_chat_message(data):
+    """Discussion instantanée : diffusion immédiate à tout le salon (+ historique en base)."""
+    code = (data.get("code") or "").upper()
+    message = (data.get("message") or "").strip()[:1000]
+
+    room = ROOMS.get(code)
+    if not room or not message:
+        return
+
+    player_info = room["players"].get(request.sid)
+    if not player_info:
+        emit("error_message", {"message": "Tu dois être dans le salon pour discuter."})
+        return
+    pseudo = player_info["pseudo"]
+
+    message_id = db.save_chat_message(code, pseudo, message)
+
+    emit(
+        "new_chat_message",
+        {
+            "id": message_id,
+            "pseudo": pseudo,
+            "avatar_url": player_info.get("avatar_url"),
             "message": message,
             "created_at": datetime.utcnow().strftime("%H:%M"),
         },
