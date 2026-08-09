@@ -191,3 +191,41 @@ document.addEventListener('DOMContentLoaded', () => {
         pseudoInput.value = savedPseudo;
     }
 });
+// Affiche le champ texte quand Vérité est choisie
+socket.on('verite_chosen', (data) => {
+    document.getElementById('question-text').innerText = data.question;
+    document.getElementById('game-zone').style.display = 'block';
+    
+    // Si c'est au tour du joueur courant
+    if (data.active_player_id === socket.id) {
+        document.getElementById('verite-section').style.display = 'block';
+    } else {
+        document.getElementById('verite-section').style.display = 'none';
+    }
+});
+
+// Envoie la réponse obligatoire au serveur
+function submitVerite() {
+    const answerInput = document.getElementById('verite-input');
+    const answer = answerInput.value.trim();
+
+    if (!answer) {
+        alert("La réponse est obligatoire ! Tu dois écrire quelque chose pour continuer.");
+        return;
+    }
+
+    // Envoi via WebSockets au serveur
+    socket.emit('send_verite_answer', {
+        room: currentRoomCode,
+        answer: answer
+    });
+
+    answerInput.value = '';
+    document.getElementById('verite-section').style.display = 'none';
+}
+
+// Réception et affichage de la réponse chez tous les joueurs du salon
+socket.on('verite_answer_received', (data) => {
+    document.getElementById('answers-log').style.display = 'block';
+    document.getElementById('last-answer-text').innerText = data.player + " a répondu : " + data.answer;
+});
