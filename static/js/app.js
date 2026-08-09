@@ -229,3 +229,63 @@ socket.on('verite_answer_received', (data) => {
     document.getElementById('answers-log').style.display = 'block';
     document.getElementById('last-answer-text').innerText = data.player + " a répondu : " + data.answer;
 });
+let mediaStream = null;
+
+// Affichage du module quand "Action" est sélectionnée
+socket.on('action_chosen', (data) => {
+    document.getElementById('question-text').innerText = data.question;
+    document.getElementById('game-zone').style.display = 'block';
+    
+    if (data.active_player_id === socket.id) {
+        document.getElementById('action-section').style.display = 'block';
+    } else {
+        document.getElementById('action-section').style.display = 'none';
+    }
+});
+
+// Allumer la caméra du téléphone
+async function startCamera() {
+    try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+        const videoTrack = document.getElementById('camera-stream');
+        videoTrack.srcObject = mediaStream;
+        videoTrack.style.display = 'block';
+        document.getElementById('btn-start-cam').style.display = 'none';
+        document.getElementById('btn-take-photo').style.display = 'inline-block';
+    } catch (err) {
+        alert("Impossible d'accéder à la caméra : " + err.message);
+    }
+}
+
+// Prendre la photo et l'envoyer via WebSockets
+function captureAndSend() {
+    const video = document.getElementById('camera-stream');
+    const canvas = document.getElementById('photo-canvas');
+    canvas.width = video.videoWidth || 300;
+    canvas.height = video.videoHeight || 400;
+
+    const context = canvas.getContext('2d');
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Convertir l'image en base64
+    const imageData = canvas.toDataURL('image/jpeg', 0.6);
+
+    // Couper la caméra
+    if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+    }
+
+    document.getElementById('action-section').style.display = 'none';
+
+    // Envoyer au serveur
+    socket.emit('send_action_proof', {
+        room: currentRoomCode,
+        image: imageData
+    });
+}
+
+// Réception de la photo chez tous les participants
+socket.on('action_proof_received', (data) => {
+    document.getElementById('action-proof-log').style.display = 'block';
+    document.getElementById('proof-image').src = data.image;
+});
