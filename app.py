@@ -168,11 +168,13 @@ def handle_join(data):
             emit("error_message", {"message": "Le salon est complet."})
             return
 
-    # Vérifier l'unicité du pseudo dans le salon
-    for info in room["players"].values():
-        if info["pseudo"].lower() == pseudo.lower():
-            emit("error_message", {"message": "Ce pseudo est déjà pris dans ce salon."})
-            return
+    # Vérifier l'unicité du pseudo dans le salon.
+    # Si un ancien sid porte déjà ce pseudo, on considère qu'il s'agit d'une
+    # RECONNEXION (Socket.IO change de sid à chaque reconnexion) et on
+    # remplace l'ancienne entrée au lieu de bloquer le joueur.
+    for old_sid, info in list(room["players"].items()):
+        if info["pseudo"].lower() == pseudo.lower() and old_sid != request.sid:
+            del room["players"][old_sid]
 
     sio_join_room(code)
     room["players"][request.sid] = {
@@ -303,100 +305,3 @@ def handle_disconnect():
 if __name__ == "__main__":
     print("Serveur lancé sur http://localhost:5000")
     socketio.run(app, host="0.0.0.0", port=5000, debug=True)
-from flask import render_template_string, request, Response
-
-# Mot de passe pour accéder à la page admin (à modifier)
-ADMIN_PASSWORD = "KEMA03062002"
-
-@app.route('/admin', methods=['GET', 'POST'])
-def admin_dashboard():
-    auth = request.authorization
-    if not auth or auth.password != ADMIN_PASSWORD:
-        return Response(
-            'Accès refusé.', 401,
-            {'WWW-Authenticate': 'Basic realm="Accès Admin"'}
-        )
-
-    from database import get_all_rooms, delete_room
-
-    # Action de suppression
-    if request.method == 'POST' and 'delete_code' in request.form:
-        delete_room(request.form['delete_code'])
-
-    rooms = get_all_rooms()
-
-    html = """
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Panneau Admin Complete</title>
-        <style>
-            body { font-family: sans-serif; background: #121212; color: #fff; padding: 15px; }
-            h1 { color: #a855f7; }
-            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-            th, td { border: 1px solid #333; padding: 10px; text-align: left; font-size: 14px; }
-            th { background: #1e1e2e; }
-            .btn-del { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
-        </style>
-    </head>
-    <body>
-        <h1>📊 Tableau de bord Admin</h1>
-        <p><strong>Salons actifs :</strong> {{ rooms|length }}</p>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Code</th>
-                    <th>Créateurs / Joueurs</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for room in rooms %}
-                <tr>
-                    <td><strong>{{ room['code'] }}</strong></td>
-                    <td>{{ room['players'] if 'players' in room.keys() and room['players'] else 'Aucun joueur inscrit' }}</td>
-                    <td>
-                        <form method="POST" style="display:inline;">
-                            <input type="hidden" name="delete_code" value="{{ room['code'] }}">
-                            <button type="submit" class="btn-del" onclick="return confirm('Supprimer ce salon ?')">Supprimer</button>
-                        </form>
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="3">Aucun salon actif.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </body>
-    </html>
-    """
-    return render_template_string(html, rooms=rooms)
-@socketio.on('send_verite_answer')
-def handle_verite_answer(data):
-    room = data.get('room')
-    answer = data.get('answer')
-    player = session.get('pseudo', 'Un joueur')
-    
-    # Broadcast de la réponse à tous les membres de la pièce
-    emit('verite_answer_received', {'player': player, 'answer': answer}, room=room)
-@socketio.on('send_action_proof')
-def handle_action_proof(data):
-    room = data.get('room')
-    image_data = data.get('image')
-    player = session.get('pseudo', 'Un joueur')
-    
-    # Transmet la photo reçue à l'ensemble de la pièce
-    emit('action_proof_received', {'player': player, 'image': image_data}, room=room)
-# Exemple de structure requise dans app.py
-@socketio.on('spin_bottle')
-def handle_spin(data):
-    # ... votre logique de tirage du joueur et de la question ...
-    
-    emit('question_drawn', {
-        'player': selected_player,
-        'type': choice_type,  # Doit valoir 'verite' ou 'action'
-        'question': question_text
-    }, room=room_code)
