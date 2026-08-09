@@ -27,6 +27,7 @@
     <nav class="tabs">
         <button class="tab-btn active" data-tab="tab-game">🍾 Action/Vérité</button>
         <button class="tab-btn" data-tab="tab-confess">💬 Confessions</button>
+        <button class="tab-btn" data-tab="tab-chat">🗨️ Discussion</button>
         <button class="tab-btn" data-tab="tab-presence">🟢 En ligne</button>
         <button class="tab-btn" data-tab="tab-invite">📨 Inviter</button>
     </nav>
@@ -79,13 +80,22 @@
         <div id="confess-list" class="confess-list"></div>
     </section>
 
-    <!-- Onglet 3 : Présence -->
+    <!-- Onglet 3 : Discussion instantanée -->
+    <section id="tab-chat" class="tab-panel">
+        <div id="chat-list" class="chat-list"></div>
+        <div class="chat-form">
+            <input type="text" id="chat-input" maxlength="1000" placeholder="Écris un message...">
+            <button id="chat-submit" class="btn-primary">➤</button>
+        </div>
+    </section>
+
+    <!-- Onglet 4 : Présence -->
     <section id="tab-presence" class="tab-panel">
         <h3>Participants connectés</h3>
         <ul id="presence-list" class="presence-list"></ul>
     </section>
 
-    <!-- Onglet 4 : Invitation -->
+    <!-- Onglet 5 : Invitation -->
     <section id="tab-invite" class="tab-panel">
         <h3>Inviter des participants</h3>
         <div class="invite-box">
@@ -93,6 +103,13 @@
             <div class="invite-link-row">
                 <input type="text" id="invite-link" value="{{ join_url }}" readonly>
                 <button id="copy-link-btn" class="btn-secondary">Copier</button>
+            </div>
+            <button id="native-share-btn" class="btn-primary share-native-btn">📤 Partager le lien</button>
+            <div class="share-links" id="share-links">
+                <a id="share-whatsapp" class="share-link whatsapp" target="_blank" rel="noopener">WhatsApp</a>
+                <a id="share-facebook" class="share-link facebook" target="_blank" rel="noopener">Facebook</a>
+                <a id="share-telegram" class="share-link telegram" target="_blank" rel="noopener">Telegram</a>
+                <a id="share-x" class="share-link x" target="_blank" rel="noopener">X</a>
             </div>
             <p class="invite-code-display">Ou code du salon : <strong>{{ code }}</strong></p>
             {% if max_players %}
