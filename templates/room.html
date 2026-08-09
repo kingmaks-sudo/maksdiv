@@ -100,3 +100,24 @@ const ROOM_CODE = "{{ code }}";
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const pseudoInput = document.querySelector('input[type="text"]');
+    
+    // 1. Remplit automatiquement le pseudo sauvegardé
+    if (pseudoInput) {
+        const savedPseudo = localStorage.getItem('user_pseudo');
+        if (savedPseudo) pseudoInput.value = savedPseudo;
+        
+        // 2. Enregistre le pseudo dès que le joueur valide
+        const form = pseudoInput.closest('form');
+        if (form) {
+            form.addEventListener('submit', () => {
+                if (pseudoInput.value) {
+                    localStorage.setItem('user_pseudo', pseudoInput.value);
+                }
+            });
+        }
+    }
+});
+</script>
