@@ -121,3 +121,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 </script>
+<!-- Zone Vérité / Action -->
+<div id="game-zone" style="display:none; margin-top:20px;">
+    <h3 id="question-text" style="color:#a855f7;"></h3>
+
+    <!-- Section Vérité (Réponse obligatoire) -->
+    <div id="verite-section" style="display:none; margin-top:15px;">
+        <textarea id="verite-input" placeholder="Écris ta réponse ici (obligatoire)..." style="width:100%; height:80px; padding:10px; border-radius:8px; border:1px solid #333; background:#181825; color:#fff;"></textarea>
+        <button id="btn-submit-verite" onclick="submitVerite()" style="background:#22c55e; color:#fff; border:none; padding:10px 20px; border-radius:8px; margin-top:10px; cursor:pointer; font-weight:bold;">Envoyer la réponse</button>
+    </div>
+
+    <!-- Affichage des réponses pour tous les joueurs -->
+    <div id="answers-log" style="margin-top:20px; text-align:left; background:#1e1e2e; padding:10px; border-radius:8px; display:none;">
+        <h4>Réponse donnée :</h4>
+        <p id="last-answer-text" style="font-style:italic; color:#e2e8f0;"></p>
+    </div>
+</div>
