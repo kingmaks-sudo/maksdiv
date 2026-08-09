@@ -390,3 +390,13 @@ def handle_action_proof(data):
     
     # Transmet la photo reçue à l'ensemble de la pièce
     emit('action_proof_received', {'player': player, 'image': image_data}, room=room)
+# Exemple de structure requise dans app.py
+@socketio.on('spin_bottle')
+def handle_spin(data):
+    # ... votre logique de tirage du joueur et de la question ...
+    
+    emit('question_drawn', {
+        'player': selected_player,
+        'type': choice_type,  # Doit valoir 'verite' ou 'action'
+        'question': question_text
+    }, room=room_code)
