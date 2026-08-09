@@ -13,9 +13,11 @@ import eventlet
 eventlet.monkey_patch()
 
 import io
+import os
 import random
 import string
 import time
+import uuid
 from datetime import datetime
 
 import qrcode
@@ -23,15 +25,25 @@ from flask import (
     Flask, render_template, request, redirect, url_for,
     session, send_file, jsonify, abort
 )
+from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.utils import secure_filename
 from flask_socketio import SocketIO, join_room as sio_join_room, leave_room as sio_leave_room, emit
 
 import database as db
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "change-moi-en-production"  # à remplacer par une vraie clé secrète
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+app.config["MAX_CONTENT_LENGTH"] = 30 * 1024 * 1024  # 30 Mo max par photo/vidéo
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet",
+                     max_http_buffer_size=30 * 1024 * 1024)
 
 db.init_db()
+
+# --- Upload des preuves d'action (photo / vidéo) ----------------------------
+UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "webm", "mp4", "mov"}
+ACTION_MAX_DURATION = 60  # secondes, limite annoncée côté client
 
 # --- État en mémoire des salons actifs -------------------------------------
 # ROOMS[code] = {
@@ -39,6 +51,12 @@ db.init_db()
 #   "used_questions": [ids],
 #   "last_spin": pseudo|None,
 #   "max_players": int|None,
+#   "pending": {
+#       "sid": str, "pseudo": str, "category": "action"|"verite",
+#       "intensity": str, "question_text": str, "started_at": ts,
+#   } | None   -> manche en cours : tant que ce n'est pas None, la bouteille
+#                 est bloquée pour tout le salon jusqu'à ce que le joueur
+#                 désigné réponde (vérité) ou envoie sa preuve (action).
 # }
 ROOMS = {}
 
@@ -87,6 +105,7 @@ def create_room():
         "used_questions": [],
         "last_spin": None,
         "max_players": max_players,
+        "pending": None,
     }
     db.register_room(code, expires_hours=expires_hours, max_players=max_players)
     return redirect(url_for("room_page", code=code))
@@ -145,6 +164,60 @@ def room_confessions(code):
     return jsonify(db.get_confessions(code))
 
 
+def allowed_action_file(filename):
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return ext in ALLOWED_EXTENSIONS
+
+
+@app.route("/room/<code>/submit_action", methods=["POST"])
+def submit_action(code):
+    """Réception de la preuve (photo/vidéo) pour une manche 'Action' en cours."""
+    code = code.upper()
+    room = ROOMS.get(code)
+    if not room:
+        return jsonify({"ok": False, "error": "Salon introuvable."}), 404
+
+    pending = room.get("pending")
+    pseudo = (request.form.get("pseudo") or "").strip()
+    if not pending or pending["category"] != "action" or pending["pseudo"] != pseudo:
+        return jsonify({"ok": False, "error": "Aucune manche 'action' en attente pour ce joueur."}), 400
+
+    file = request.files.get("media")
+    if not file or file.filename == "":
+        return jsonify({"ok": False, "error": "Aucun fichier reçu."}), 400
+    if not allowed_action_file(file.filename):
+        return jsonify({"ok": False, "error": "Format de fichier non autorisé."}), 400
+
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    unique_name = secure_filename(f"{code}_{uuid.uuid4().hex}.{ext}")
+    room_dir = os.path.join(UPLOAD_FOLDER, code)
+    os.makedirs(room_dir, exist_ok=True)
+    file.save(os.path.join(room_dir, unique_name))
+
+    media_kind = "video" if ext in ("webm", "mp4", "mov") else "image"
+    media_url = url_for("static", filename=f"uploads/{code}/{unique_name}")
+
+    room["pending"] = None
+    socketio.emit(
+        "round_result",
+        {
+            "type": "action",
+            "pseudo": pending["pseudo"],
+            "intensity": pending["intensity"],
+            "question": pending["question_text"],
+            "media_url": media_url,
+            "media_kind": media_kind,
+        },
+        to=code,
+    )
+    return jsonify({"ok": True, "media_url": media_url})
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_too_large(e):
+    return jsonify({"ok": False, "error": "Fichier trop volumineux (30 Mo max)."}), 413
+
+
 # --- Événements Socket.IO ----------------------------------------------------
 
 @socketio.on("join_room_event")
@@ -193,6 +266,20 @@ def handle_join(data):
         to=code,
     )
 
+    # Si une manche était déjà en cours (ex: reconnexion après coupure réseau),
+    # on renvoie son état à ce client précis pour qu'il retrouve l'UI de blocage.
+    pending = room.get("pending")
+    if pending:
+        emit(
+            "question_drawn",
+            {
+                "category": pending["category"],
+                "intensity": pending["intensity"],
+                "text": pending["question_text"],
+                "chosen_by": pending["pseudo"],
+            },
+        )
+
 
 @socketio.on("heartbeat")
 def handle_heartbeat(data):
@@ -208,6 +295,10 @@ def handle_spin(data):
     room = ROOMS.get(code)
     if not room:
         emit("error_message", {"message": "Salon introuvable."})
+        return
+
+    if room.get("pending"):
+        emit("error_message", {"message": "Une manche est en cours, attends la réponse avant de relancer la bouteille."})
         return
 
     players = list(room["players"].values())
@@ -243,6 +334,15 @@ def handle_choice(data):
         emit("error_message", {"message": "Choix invalide."})
         return
 
+    # Seul le joueur désigné par la bouteille peut choisir, et une seule fois.
+    player_info = room["players"].get(request.sid)
+    if not player_info or player_info["pseudo"] != room.get("last_spin"):
+        emit("error_message", {"message": "Ce n'est pas ton tour."})
+        return
+    if room.get("pending"):
+        emit("error_message", {"message": "Une manche est déjà en cours."})
+        return
+
     question = db.get_random_question(choice, intensity, exclude_ids=room["used_questions"])
     if question is None:
         # Toutes les questions ont été utilisées : on réinitialise le cycle pour cette catégorie
@@ -255,6 +355,17 @@ def handle_choice(data):
 
     room["used_questions"].append(question["id"])
 
+    # Ouvre la manche : bloque la bouteille pour tout le monde jusqu'à
+    # ce que le joueur désigné réponde (vérité) ou envoie sa preuve (action).
+    room["pending"] = {
+        "sid": request.sid,
+        "pseudo": pseudo,
+        "category": choice,
+        "intensity": intensity,
+        "question_text": question["text"],
+        "started_at": time.time(),
+    }
+
     emit(
         "question_drawn",
         {
@@ -262,6 +373,40 @@ def handle_choice(data):
             "intensity": intensity,
             "text": question["text"],
             "chosen_by": pseudo,
+        },
+        to=code,
+    )
+
+
+@socketio.on("submit_truth_answer")
+def handle_truth_answer(data):
+    code = (data.get("code") or "").upper()
+    answer = (data.get("answer") or "").strip()[:800]
+
+    room = ROOMS.get(code)
+    if not room:
+        emit("error_message", {"message": "Salon introuvable."})
+        return
+
+    pending = room.get("pending")
+    player_info = room["players"].get(request.sid)
+    if not pending or pending["category"] != "verite" or not player_info \
+            or player_info["pseudo"] != pending["pseudo"]:
+        emit("error_message", {"message": "Aucune manche 'vérité' en attente pour toi."})
+        return
+    if not answer:
+        emit("error_message", {"message": "La réponse ne peut pas être vide."})
+        return
+
+    room["pending"] = None
+    emit(
+        "round_result",
+        {
+            "type": "verite",
+            "pseudo": pending["pseudo"],
+            "intensity": pending["intensity"],
+            "question": pending["question_text"],
+            "answer": answer,
         },
         to=code,
     )
@@ -299,6 +444,17 @@ def handle_disconnect():
             del room["players"][request.sid]
             emit("presence_update", {"players": get_players_list(code)}, to=code)
             emit("system_message", {"message": f"{pseudo} a quitté le salon."}, to=code)
+
+            # Si le joueur qui partait était en pleine manche, on débloque
+            # le salon pour ne pas laisser tout le monde bloqué indéfiniment.
+            pending = room.get("pending")
+            if pending and pending["sid"] == request.sid:
+                room["pending"] = None
+                emit(
+                    "round_cancelled",
+                    {"pseudo": pseudo, "message": f"{pseudo} a quitté avant de terminer sa manche."},
+                    to=code,
+                )
             break
 
 
