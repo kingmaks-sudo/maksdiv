@@ -91,6 +91,16 @@
 
     <!-- Onglet 4 : Présence -->
     <section id="tab-presence" class="tab-panel">
+        <div class="my-profile-box">
+            <div class="my-avatar-preview" id="my-avatar-preview">?</div>
+            <div class="my-profile-info">
+                <p class="my-profile-label">Ma photo de profil</p>
+                <p class="my-profile-hint">Facultatif — visible dans le chat et la liste des participants.</p>
+                <label for="avatar-input" class="btn-secondary avatar-upload-btn">📷 Choisir une photo</label>
+                <input type="file" id="avatar-input" accept="image/png,image/jpeg,image/webp" style="display:none;">
+                <p id="avatar-error" class="alert-error" style="display:none;"></p>
+            </div>
+        </div>
         <h3>Participants connectés</h3>
         <ul id="presence-list" class="presence-list"></ul>
     </section>
