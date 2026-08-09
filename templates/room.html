@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Salon {{ code }} — Action ou Vérité</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Salon {{ code }} — Action ou Vérité</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
 
@@ -54,35 +54,16 @@
             </div>
         </div>
 
-        <!-- Zone d'affichage des questions & interactions -->
         <div id="question-card" class="question-card" style="display:none;"></div>
 
-        <div id="game-zone" class="card" style="display:none; border: 1px solid #a855f7; padding: 15px; border-radius: 12px; margin-top: 15px; background:#1e1e2e;">
-            <h3 id="question-title" style="color:#a855f7;"></h3>
-            <p id="question-text" style="font-size: 18px; font-weight: bold;"></p>
-            
-            <!-- Section Vérité (Réponse obligatoire) -->
-            <div id="verite-section" style="display:none; margin-top: 15px;">
-                <textarea id="verite-input" placeholder="Écris ta réponse ici (obligatoire)..." style="width: 100%; height: 80px; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #181825; color: #fff;"></textarea>
-                <button id="btn-submit-verite" onclick="submitVerite()" style="background: #22c55e; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; margin-top: 10px; font-weight: bold; width: 100%; cursor:pointer;">Envoyer la réponse</button>
-            </div>
+        <!-- Zone d'action pour le joueur désigné (réponse vérité / caméra) -->
+        <div id="round-action-zone" class="round-zone" style="display:none;"></div>
 
-            <!-- Section Action (Caméra) -->
-            <div id="action-section" style="display:none; margin-top: 15px; text-align:center;">
-                <p style="color:#eab308; font-weight:bold;">Réalise ton action devant la caméra !</p>
-                <video id="camera-stream" autoplay playsinline style="width: 100%; max-width:300px; border-radius: 8px; border:2px solid #a855f7; display: none; background:#000;"></video>
-                <canvas id="photo-canvas" style="display: none;"></canvas>
-                <button id="btn-start-cam" onclick="startCamera()" style="background: #3b82f6; color: #fff; border: none; padding: 10px; border-radius: 8px; width: 100%; cursor:pointer; margin-top:8px;">📷 Allumer la caméra</button>
-                <button id="btn-take-photo" onclick="captureAndSend()" style="background: #ef4444; color: #fff; border: none; padding: 10px; border-radius: 8px; margin-top: 10px; display: none; width: 100%; cursor:pointer;">📸 Prendre et envoyer la preuve</button>
-            </div>
-        </div>
+        <!-- Message d'attente pour les autres joueurs -->
+        <div id="round-waiting-zone" class="round-zone" style="display:none;"></div>
 
-        <!-- Zone d'affichage des résultats pour tous -->
-        <div id="answers-log" style="margin-top: 15px; display: none; background: #1e1e2e; padding: 15px; border-radius: 8px; border: 1px solid #333;">
-            <h4 style="margin-top:0;">Résultat :</h4>
-            <p id="last-answer-text" style="font-style:italic; color:#e2e8f0;"></p>
-            <img id="proof-image" src="" style="width: 100%; max-width:300px; border-radius: 8px; border: 2px solid #22c55e; display: none; margin: 0 auto;">
-        </div>
+        <!-- Résultat affiché à tout le monde une fois la manche terminée -->
+        <div id="round-result-zone" class="round-result" style="display:none;"></div>
     </section>
 
     <!-- Onglet 2 : Confessions -->
@@ -124,27 +105,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 const ROOM_CODE = "{{ code }}";
-
-// Gestion de la sauvegarde automatique du pseudo
-document.addEventListener('DOMContentLoaded', () => {
-    const pseudoInput = document.getElementById('pseudo-input');
-    const pseudoSubmit = document.getElementById('pseudo-submit');
-
-    if (pseudoInput) {
-        const savedPseudo = localStorage.getItem('user_pseudo');
-        if (savedPseudo) {
-            pseudoInput.value = savedPseudo;
-        }
-
-        if (pseudoSubmit) {
-            pseudoSubmit.addEventListener('click', () => {
-                if (pseudoInput.value.trim()) {
-                    localStorage.setItem('user_pseudo', pseudoInput.value.trim());
-                }
-            });
-        }
-    }
-});
 </script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
