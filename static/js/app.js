@@ -182,3 +182,12 @@ function escapeHtml(str) {
     div.textContent = str;
     return div.innerHTML;
 }
+document.addEventListener('DOMContentLoaded', () => {
+    const savedPseudo = localStorage.getItem('user_pseudo');
+    const pseudoInput = document.querySelector('input[name="pseudo"]') || document.querySelector('#pseudo');
+    
+    // Si un pseudo est déjà enregistré, on le remplit automatiquement
+    if (savedPseudo && pseudoInput) {
+        pseudoInput.value = savedPseudo;
+    }
+});
