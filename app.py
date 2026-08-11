@@ -62,6 +62,9 @@ ALLOWED_AVATAR_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 #   } | None   -> manche en cours : tant que ce n'est pas None, la bouteille
 #                 est bloquée pour tout le salon jusqu'à ce que le joueur
 #                 désigné réponde (vérité) ou envoie sa preuve (action).
+#   "spin_order": [pseudo, ...] | None  -> ordre de passage pour APPUYER sur la
+#                 bouteille, tiré aléatoirement une seule fois au premier lancer.
+#   "spin_turn_index": int  -> index dans spin_order du joueur dont c'est le tour.
 # }
 ROOMS = {}
 
@@ -96,6 +99,49 @@ def get_players_list(code):
     return players
 
 
+# --- Tour de rôle pour lancer la bouteille -----------------------------------
+
+def get_current_turn_pseudo(room):
+    order = room.get("spin_order")
+    if not order:
+        return None
+    idx = room.get("spin_turn_index", 0) % len(order)
+    return order[idx]
+
+
+def broadcast_turn(code):
+    room = ROOMS.get(code)
+    if not room:
+        return
+    socketio.emit("turn_update", {"pseudo": get_current_turn_pseudo(room)}, to=code)
+
+
+def advance_turn(room):
+    order = room.get("spin_order")
+    if not order:
+        return
+    room["spin_turn_index"] = (room.get("spin_turn_index", 0) + 1) % len(order)
+
+
+def remove_from_spin_order(room, pseudo):
+    """Retire un joueur qui part de l'ordre de passage, en réajustant l'index
+    courant pour que le tour ne saute pas ou ne se bloque pas."""
+    order = room.get("spin_order")
+    if not order or pseudo not in order:
+        return
+    idx = order.index(pseudo)
+    order.remove(pseudo)
+    if not order:
+        room["spin_order"] = None
+        room["spin_turn_index"] = 0
+        return
+    current = room.get("spin_turn_index", 0)
+    if idx < current:
+        room["spin_turn_index"] = (current - 1) % len(order)
+    else:
+        room["spin_turn_index"] = current % len(order)
+
+
 # --- Routes HTTP -------------------------------------------------------------
 
 @app.route("/")
@@ -126,6 +172,8 @@ def create_room():
         "last_spin": None,
         "max_players": max_players,
         "pending": None,
+        "spin_order": None,
+        "spin_turn_index": 0,
     }
     db.register_room(code, expires_hours=expires_hours, max_players=max_players)
     return redirect(url_for("room_page", code=code))
@@ -331,6 +379,12 @@ def handle_join(data):
     session["pseudo"] = pseudo
     session["code"] = code
 
+    # Si la partie a déjà commencé (ordre de passage établi) et que ce pseudo
+    # n'y figure pas encore (nouveau joueur en cours de partie), on l'ajoute
+    # à la fin de la file — il aura son tour plus tard, sans perturber l'ordre déjà tiré.
+    if room.get("spin_order") and pseudo not in room["spin_order"]:
+        room["spin_order"].append(pseudo)
+
     emit("joined", {"pseudo": pseudo, "code": code})
     emit("presence_update", {"players": get_players_list(code)}, to=code)
     emit(
@@ -338,6 +392,12 @@ def handle_join(data):
         {"message": f"{pseudo} a rejoint le salon."},
         to=code,
     )
+
+    # On informe ce client précis (et tout le salon, au cas où la liste a
+    # changé) de qui a la main pour lancer la bouteille.
+    emit("turn_update", {"pseudo": get_current_turn_pseudo(room)})
+    if room.get("spin_order"):
+        broadcast_turn(code)
 
     # Si une manche était déjà en cours (ex: reconnexion après coupure réseau),
     # on renvoie son état à ce client précis pour qu'il retrouve l'UI de blocage.
@@ -379,6 +439,23 @@ def handle_spin(data):
         emit("error_message", {"message": "Il faut au moins 2 joueurs pour lancer la bouteille."})
         return
 
+    # Premier lancer de la partie : on tire l'ordre de passage une seule fois.
+    if not room.get("spin_order"):
+        pseudos = [p["pseudo"] for p in players]
+        random.shuffle(pseudos)
+        room["spin_order"] = pseudos
+        room["spin_turn_index"] = 0
+        broadcast_turn(code)
+
+    current_turn_pseudo = get_current_turn_pseudo(room)
+    sender_info = room["players"].get(request.sid)
+    if not sender_info or sender_info["pseudo"] != current_turn_pseudo:
+        emit(
+            "error_message",
+            {"message": f"Ce n'est pas ton tour de lancer la bouteille. C'est à {current_turn_pseudo}."},
+        )
+        return
+
     chosen = random.choice(players)
     room["last_spin"] = chosen["pseudo"]
 
@@ -390,6 +467,10 @@ def handle_spin(data):
         {"chosen_pseudo": chosen["pseudo"], "rotation": rotation_degrees},
         to=code,
     )
+
+    # Le lancer a été utilisé : on passe la main au joueur suivant dans l'ordre.
+    advance_turn(room)
+    broadcast_turn(code)
 
 
 @socketio.on("make_choice")
@@ -573,6 +654,11 @@ def handle_disconnect():
             del room["players"][request.sid]
             emit("presence_update", {"players": get_players_list(code)}, to=code)
             emit("system_message", {"message": f"{pseudo} a quitté le salon."}, to=code)
+
+            # Retire le joueur de l'ordre de passage de la bouteille (s'il y
+            # figurait) et notifie le salon du tour éventuellement mis à jour.
+            remove_from_spin_order(room, pseudo)
+            broadcast_turn(code)
 
             # Si le joueur qui partait était en pleine manche, on débloque
             # le salon pour ne pas laisser tout le monde bloqué indéfiniment.
