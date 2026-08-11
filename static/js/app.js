@@ -45,10 +45,10 @@ socket.on("error_message", (data) => {
     pseudoError.textContent = data.message;
     pseudoError.style.display = "block";
     // Si l'erreur survient pendant une tentative de spin qui échoue (pas
-    // assez de joueurs, etc.), on réactive le bouton sauf si une manche
-    // est réellement en cours (auquel cas il doit rester bloqué).
-    if (typeof spinBtn !== "undefined" && spinBtn && !roundInProgress) {
-        spinBtn.disabled = false;
+    // assez de joueurs, pas son tour, etc.), on remet le bouton dans son
+    // état correct (activé seulement si c'est vraiment le tour du joueur).
+    if (typeof updateTurnUI === "function" && !roundInProgress) {
+        updateTurnUI();
     }
 });
 
@@ -83,6 +83,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 const bottleEl = document.getElementById("bottle");
 const spinBtn = document.getElementById("spin-btn");
 const spinResult = document.getElementById("spin-result");
+const turnIndicator = document.getElementById("turn-indicator");
 const choiceZone = document.getElementById("choice-zone");
 const questionCard = document.getElementById("question-card");
 const roundActionZone = document.getElementById("round-action-zone");
@@ -92,12 +93,42 @@ const roundResultZone = document.getElementById("round-result-zone");
 const ACTION_MAX_DURATION_MS = 60000; // 1 minute max pour la vidéo d'action
 
 let roundInProgress = false; // true dès qu'une question est tirée, jusqu'à round_result/round_cancelled
+let currentTurnPseudo = null; // pseudo du joueur dont c'est le tour de lancer la bouteille
 let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let capturedBlob = null;
 let recordCountdownHandle = null;
 let recordTimeoutHandle = null;
+
+// Recalcule l'état du bouton "Tourner" + le message au-dessus, à chaque
+// changement de tour ou de manche en cours.
+function updateTurnUI() {
+    if (roundInProgress) {
+        // Une manche (choix/réponse/action) est en cours : le tour de spin
+        // reste affiché mais le bouton est de toute façon désactivé ailleurs.
+        return;
+    }
+    if (!currentTurnPseudo) {
+        turnIndicator.textContent = "";
+        spinBtn.disabled = false;
+        return;
+    }
+    if (currentTurnPseudo === myPseudo) {
+        turnIndicator.textContent = "🎯 C'est ton tour de lancer la bouteille !";
+        turnIndicator.classList.add("my-turn");
+        spinBtn.disabled = false;
+    } else {
+        turnIndicator.textContent = `⏳ C'est au tour de ${currentTurnPseudo} de lancer la bouteille.`;
+        turnIndicator.classList.remove("my-turn");
+        spinBtn.disabled = true;
+    }
+}
+
+socket.on("turn_update", (data) => {
+    currentTurnPseudo = data.pseudo;
+    updateTurnUI();
+});
 
 spinBtn.addEventListener("click", () => {
     spinBtn.disabled = true;
@@ -122,6 +153,7 @@ socket.on("bottle_result", (data) => {
 
 document.getElementById("btn-action").addEventListener("click", () => makeChoice("action"));
 document.getElementById("btn-verite").addEventListener("click", () => makeChoice("verite"));
+
 
 function makeChoice(choice) {
     const intensity = document.querySelector('input[name="intensity"]:checked').value;
@@ -343,7 +375,7 @@ socket.on("round_result", (data) => {
     `;
     roundResultZone.style.display = "block";
     spinResult.textContent = "";
-    spinBtn.disabled = false;
+    updateTurnUI();
 });
 
 // ----- Le joueur désigné a quitté avant de terminer : on débloque -----
@@ -355,7 +387,7 @@ socket.on("round_cancelled", (data) => {
     roundWaitingZone.style.display = "none";
     questionCard.style.display = "none";
     spinResult.textContent = `⚠️ ${data.message}`;
-    spinBtn.disabled = false;
+    updateTurnUI();
 });
 
 // ---------- Onglet 2 : Confessions ----------
