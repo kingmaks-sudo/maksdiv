@@ -254,6 +254,18 @@ body {
     margin-top: 12px;
 }
 
+.turn-indicator {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    min-height: 20px;
+    margin: 0 0 14px;
+}
+
+.turn-indicator.my-turn {
+    color: var(--success);
+    font-weight: 600;
+}
+
 .choice-zone { margin-top: 24px; text-align: center; }
 
 .intensity-picker {
