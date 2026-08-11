@@ -229,21 +229,47 @@ body {
 .bottle-zone { text-align: center; padding: 20px 0; }
 
 .bottle-container {
+    position: relative;
     width: 180px;
     height: 180px;
     margin: 0 auto 24px;
     border-radius: 50%;
-    background: var(--bg-elevated);
+    background: radial-gradient(circle at 50% 40%, var(--bg-elevated), var(--bg-card) 80%);
     display: flex;
     align-items: center;
     justify-content: center;
     border: 2px solid var(--border);
+    box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.4);
+}
+
+/* Petits repères autour du plateau, comme une roulette */
+.bottle-container::before {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    border-radius: 50%;
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+    pointer-events: none;
 }
 
 .bottle {
-    font-size: 5rem;
-    transition: transform 3.5s cubic-bezier(0.2, 0.7, 0.3, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 4s cubic-bezier(0.15, 0.75, 0.25, 1);
     transform: rotate(0deg);
+    filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.5));
+}
+
+.bottle svg { display: block; }
+
+/* Anneau lumineux pendant que la bouteille tourne */
+.bottle-container.spinning {
+    box-shadow:
+        inset 0 0 24px rgba(0, 0, 0, 0.4),
+        0 0 0 3px rgba(217, 70, 168, 0.35),
+        0 0 22px 4px rgba(109, 91, 255, 0.35);
+    transition: box-shadow 0.3s ease;
 }
 
 .spin-result {
