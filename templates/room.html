@@ -33,13 +33,8 @@
         <div class="my-pseudo" id="my-pseudo-label"></div>
     </header>
 
-    <nav class="tabs">
-        <button class="tab-btn active" data-tab="tab-game">🍾 Action/Vérité</button>
-        <button class="tab-btn" data-tab="tab-confess">💬 Confessions</button>
-        <button class="tab-btn" data-tab="tab-chat">🗨️ Discussion</button>
-        <button class="tab-btn" data-tab="tab-presence">🟢 En ligne</button>
-        <button class="tab-btn" data-tab="tab-invite">📨 Inviter</button>
-    </nav>
+    <!-- Rangée "Stories" : participants en ligne -->
+    <div id="presence-strip" class="presence-strip"></div>
 
     <!-- Onglet 1 : Action ou Vérité -->
     <section id="tab-game" class="tab-panel active">
@@ -162,6 +157,32 @@
             {% endif %}
         </div>
     </section>
+
+    <!-- Navigation principale, en bas de l'écran -->
+    <nav class="bottom-nav">
+        <button class="nav-btn active" data-tab="tab-game">
+            <span class="nav-icon">🍾</span>
+            <span class="nav-label">Jeu</span>
+        </button>
+        <button class="nav-btn" data-tab="tab-confess">
+            <span class="nav-icon">💬</span>
+            <span class="nav-label">Confessions</span>
+        </button>
+        <button class="nav-btn" data-tab="tab-chat">
+            <span class="nav-icon">🗨️</span>
+            <span class="nav-label">Discussion</span>
+            <span class="nav-badge" id="badge-chat" style="display:none;">0</span>
+        </button>
+        <button class="nav-btn" data-tab="tab-presence">
+            <span class="nav-icon">🟢</span>
+            <span class="nav-label">En ligne</span>
+            <span class="nav-badge nav-badge-count" id="badge-presence">0</span>
+        </button>
+        <button class="nav-btn" data-tab="tab-invite">
+            <span class="nav-icon">📨</span>
+            <span class="nav-label">Inviter</span>
+        </button>
+    </nav>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
