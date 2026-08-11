@@ -69,18 +69,28 @@ socket.io.on("reconnect_attempt", () => {
     }
 });
 
-// ---------- Navigation par onglets ----------
-document.querySelectorAll(".tab-btn").forEach((btn) => {
+// ---------- Navigation par onglets (barre du bas) ----------
+let activeTabId = "tab-game";
+
+document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-        document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+        document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
         document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
         btn.classList.add("active");
-        document.getElementById(btn.dataset.tab).classList.add("active");
+        activeTabId = btn.dataset.tab;
+        document.getElementById(activeTabId).classList.add("active");
+
+        // En ouvrant la discussion, on considère les messages comme lus.
+        if (activeTabId === "tab-chat") {
+            unreadChatCount = 0;
+            updateChatBadge();
+        }
     });
 });
 
 // ---------- Onglet 1 : Bouteille ----------
 const bottleEl = document.getElementById("bottle");
+const bottleContainer = document.querySelector(".bottle-container");
 const spinBtn = document.getElementById("spin-btn");
 const spinResult = document.getElementById("spin-result");
 const turnIndicator = document.getElementById("turn-indicator");
@@ -91,6 +101,7 @@ const roundWaitingZone = document.getElementById("round-waiting-zone");
 const roundResultZone = document.getElementById("round-result-zone");
 
 const ACTION_MAX_DURATION_MS = 60000; // 1 minute max pour la vidéo d'action
+const BOTTLE_SPIN_DURATION_MS = 4000; // doit correspondre à la durée de transition CSS (.bottle)
 
 let roundInProgress = false; // true dès qu'une question est tirée, jusqu'à round_result/round_cancelled
 let currentTurnPseudo = null; // pseudo du joueur dont c'est le tour de lancer la bouteille
@@ -141,14 +152,16 @@ spinBtn.addEventListener("click", () => {
 socket.on("bottle_result", (data) => {
     currentRotation += data.rotation;
     bottleEl.style.transform = `rotate(${currentRotation}deg)`;
+    bottleContainer.classList.add("spinning");
     setTimeout(() => {
+        bottleContainer.classList.remove("spinning");
         spinResult.textContent = `🎯 ${data.chosen_pseudo} a été désigné(e) !`;
         if (data.chosen_pseudo === myPseudo) {
             choiceZone.style.display = "block";
         }
         // Le bouton reste désactivé : la manche (choix + réponse/preuve)
         // doit se terminer avant de pouvoir relancer la bouteille.
-    }, 3600);
+    }, BOTTLE_SPIN_DURATION_MS);
 });
 
 document.getElementById("btn-action").addEventListener("click", () => makeChoice("action"));
@@ -481,7 +494,7 @@ function appendConfession(id, pseudo, message, time, comments) {
 // Insère une référence "@pseudo" dans le champ de saisie principal, pour
 // écrire une nouvelle confession qui mentionne cette personne.
 function mentionConfession(pseudo) {
-    document.querySelector('.tab-btn[data-tab="tab-confess"]').click();
+    document.querySelector('.nav-btn[data-tab="tab-confess"]').click();
     const prefix = `@${pseudo} `;
     if (!confessInput.value.startsWith(prefix)) {
         confessInput.value = prefix + confessInput.value;
@@ -543,9 +556,28 @@ chatInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") sendChatMessage();
 });
 
+let unreadChatCount = 0;
+const chatBadge = document.getElementById("badge-chat");
+
+function updateChatBadge() {
+    if (unreadChatCount > 0) {
+        chatBadge.textContent = unreadChatCount > 9 ? "9+" : unreadChatCount;
+        chatBadge.style.display = "flex";
+    } else {
+        chatBadge.style.display = "none";
+    }
+}
+
 socket.on("new_chat_message", (data) => {
     appendChatMessage(data.pseudo, data.avatar_url, data.message, data.created_at);
     scrollChatToBottom();
+
+    // On ne compte pas comme "non lu" le message qu'on vient d'envoyer soi-même,
+    // ni les messages reçus pendant qu'on a déjà l'onglet Discussion ouvert.
+    if (activeTabId !== "tab-chat" && data.pseudo !== myPseudo) {
+        unreadChatCount += 1;
+        updateChatBadge();
+    }
 });
 
 function appendChatMessage(pseudo, avatarUrl, message, time) {
@@ -589,8 +621,11 @@ function loadChatMessages() {
 
 // ---------- Onglet 3 : Présence ----------
 const presenceList = document.getElementById("presence-list");
+const presenceBadge = document.getElementById("badge-presence");
 
 socket.on("presence_update", (data) => {
+    presenceBadge.textContent = data.players.length > 9 ? "9+" : data.players.length;
+
     presenceList.innerHTML = "";
     data.players.forEach((p) => {
         const li = document.createElement("li");
