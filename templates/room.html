@@ -45,7 +45,32 @@
     <section id="tab-game" class="tab-panel active">
         <div class="bottle-zone">
             <div class="bottle-container">
-                <div id="bottle" class="bottle">🍾</div>
+                <div id="bottle" class="bottle">
+                    <svg width="80" height="147" viewBox="0 0 120 220" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="bottleGradient" x1="0" y1="0" x2="1" y2="1">
+                                <stop offset="0%" stop-color="#d946a8"/>
+                                <stop offset="100%" stop-color="#6d5bff"/>
+                            </linearGradient>
+                            <linearGradient id="bottleCapGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#2c2c3a"/>
+                                <stop offset="100%" stop-color="#17171f"/>
+                            </linearGradient>
+                        </defs>
+                        <!-- Bouchon -->
+                        <rect x="50" y="2" width="20" height="16" rx="4" fill="url(#bottleCapGradient)"/>
+                        <!-- Goulot -->
+                        <rect x="52" y="16" width="16" height="42" fill="url(#bottleGradient)"/>
+                        <!-- Épaule -->
+                        <polygon points="52,58 68,58 100,94 20,94" fill="url(#bottleGradient)"/>
+                        <!-- Corps -->
+                        <rect x="20" y="94" width="80" height="112" rx="18" fill="url(#bottleGradient)"/>
+                        <!-- Étiquette -->
+                        <rect x="26" y="132" width="68" height="34" rx="6" fill="#0f0f14" opacity="0.35"/>
+                        <!-- Reflet verre -->
+                        <rect x="34" y="22" width="9" height="178" rx="4.5" fill="#ffffff" opacity="0.18" transform="skewX(-6)"/>
+                    </svg>
+                </div>
             </div>
             <p id="turn-indicator" class="turn-indicator"></p>
             <button id="spin-btn" class="btn-primary">Tourner la bouteille</button>
