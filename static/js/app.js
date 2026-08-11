@@ -622,6 +622,25 @@ function loadChatMessages() {
 // ---------- Onglet 3 : Présence ----------
 const presenceList = document.getElementById("presence-list");
 const presenceBadge = document.getElementById("badge-presence");
+const presenceStrip = document.getElementById("presence-strip");
+
+// Rangée "Stories" des participants en ligne, visible en haut sur tous les onglets.
+function renderPresenceStrip(players) {
+    presenceStrip.innerHTML = "";
+    players.forEach((p) => {
+        const isMe = p.pseudo === myPseudo;
+        const bubble = document.createElement("div");
+        bubble.className = "story-bubble" + (isMe ? " story-bubble-me" : "");
+        bubble.title = `${p.pseudo} — ${p.status === "inactif" ? "inactif" : "en ligne"}`;
+        bubble.innerHTML = `
+            <div class="story-avatar-ring ${p.status === "inactif" ? "inactif" : ""}">
+                <div class="story-avatar">${p.avatar_url ? `<img src="${p.avatar_url}" alt="">` : escapeHtml(initials(p.pseudo))}</div>
+            </div>
+            <span class="story-name">${escapeHtml(isMe ? "Toi" : p.pseudo)}</span>
+        `;
+        presenceStrip.appendChild(bubble);
+    });
+}
 
 socket.on("presence_update", (data) => {
     presenceBadge.textContent = data.players.length > 9 ? "9+" : data.players.length;
@@ -636,6 +655,8 @@ socket.on("presence_update", (data) => {
         `;
         presenceList.appendChild(li);
     });
+
+    renderPresenceStrip(data.players);
 
     // Met à jour mon propre aperçu si mon avatar a changé (ex: après upload).
     const me = data.players.find((p) => p.pseudo === myPseudo);
