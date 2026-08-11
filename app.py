@@ -1,734 +1,678 @@
-// ------------------------------------------------------------------
-// Client Socket.IO — salon "Action ou Vérité"
-// ------------------------------------------------------------------
+"""
+Application web multi-joueurs de divertissement social.
+- Onglet 1 : Action ou Vérité (bouteille virtuelle)
+- Onglet 2 : Confessions / partages personnels
+- Onglet 3 : Présence en ligne
+- Onglet 4 : Invitation (lien + QR code)
 
-const socket = io();
-let myPseudo = null;
-let currentRotation = 0;
+Lancement : python app.py
+Puis ouvrir http://localhost:5000
+"""
 
-// ---------- Écran de saisie du pseudo ----------
-const pseudoOverlay = document.getElementById("pseudo-overlay");
-const pseudoInput = document.getElementById("pseudo-input");
-const pseudoSubmit = document.getElementById("pseudo-submit");
-const pseudoError = document.getElementById("pseudo-error");
-const appEl = document.getElementById("app");
+import eventlet
+eventlet.monkey_patch()
 
-function attemptJoin() {
-    const pseudo = pseudoInput.value.trim();
-    if (!pseudo) return;
-    socket.emit("join_room_event", { code: ROOM_CODE, pseudo });
-}
+import io
+import os
+import random
+import string
+import time
+import uuid
+from datetime import datetime
 
-pseudoSubmit.addEventListener("click", attemptJoin);
-pseudoInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") attemptJoin();
-});
+import qrcode
+from flask import (
+    Flask, render_template, request, redirect, url_for,
+    session, send_file, send_from_directory, jsonify, abort
+)
+from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.utils import secure_filename
+from flask_socketio import SocketIO, join_room as sio_join_room, leave_room as sio_leave_room, emit
 
-let heartbeatTimer = null;
+import database as db
 
-socket.on("joined", (data) => {
-    myPseudo = data.pseudo;
-    pseudoOverlay.style.display = "none";
-    appEl.style.display = "block";
-    document.getElementById("my-pseudo-label").textContent = "👤 " + myPseudo;
-    // Heartbeat régulier pour indiquer la présence
-    // (on nettoie l'ancien timer pour éviter d'en empiler un nouveau à chaque reconnexion)
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
-    heartbeatTimer = setInterval(() => {
-        socket.emit("heartbeat", { code: ROOM_CODE });
-    }, 20000);
-    loadConfessions();
-    loadChatMessages();
-});
+app = Flask(__name__)
+app.config["SECRET_KEY"] = "change-moi-en-production"  # à remplacer par une vraie clé secrète
+app.config["MAX_CONTENT_LENGTH"] = 30 * 1024 * 1024  # 30 Mo max par photo/vidéo
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet",
+                     max_http_buffer_size=30 * 1024 * 1024)
 
-socket.on("error_message", (data) => {
-    pseudoError.textContent = data.message;
-    pseudoError.style.display = "block";
-    // Si l'erreur survient pendant une tentative de spin qui échoue (pas
-    // assez de joueurs, pas son tour, etc.), on remet le bouton dans son
-    // état correct (activé seulement si c'est vraiment le tour du joueur).
-    if (typeof updateTurnUI === "function" && !roundInProgress) {
-        updateTurnUI();
-    }
-});
+db.init_db()
 
-// ---------- Reconnexion automatique ----------
-// Après une coupure réseau (ex: mise en veille du serveur Render), Socket.IO
-// se reconnecte avec un NOUVEAU sid côté serveur. Il faut donc rejouer
-// explicitement "join_room_event" pour que le serveur remette le client
-// dans la room et dans la liste des joueurs.
-socket.on("connect", () => {
-    if (myPseudo) {
-        socket.emit("join_room_event", { code: ROOM_CODE, pseudo: myPseudo });
-    }
-});
+# --- Upload des preuves d'action (photo / vidéo) ----------------------------
+UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "webm", "mp4", "mov"}
+ACTION_MAX_DURATION = 60  # secondes, limite annoncée côté client
 
-socket.io.on("reconnect_attempt", () => {
-    if (myPseudo) {
-        console.log("Reconnexion en cours...");
-    }
-});
+# --- Upload des photos de profil --------------------------------------------
+AVATAR_FOLDER = os.path.join(app.root_path, "static", "avatars")
+os.makedirs(AVATAR_FOLDER, exist_ok=True)
+ALLOWED_AVATAR_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 
-// ---------- Navigation par onglets (barre du bas) ----------
-let activeTabId = "tab-game";
+# --- État en mémoire des salons actifs -------------------------------------
+# ROOMS[code] = {
+#   "players": { sid: {"pseudo": str, "last_seen": ts, "status": "online"} },
+#   "used_questions": [ids],
+#   "last_spin": pseudo|None,
+#   "max_players": int|None,
+#   "pending": {
+#       "sid": str, "pseudo": str, "category": "action"|"verite",
+#       "intensity": str, "question_text": str, "started_at": ts,
+#   } | None   -> manche en cours : tant que ce n'est pas None, la bouteille
+#                 est bloquée pour tout le salon jusqu'à ce que le joueur
+#                 désigné réponde (vérité) ou envoie sa preuve (action).
+#   "spin_order": [pseudo, ...] | None  -> ordre de passage pour APPUYER sur la
+#                 bouteille, tiré aléatoirement une seule fois au premier lancer.
+#   "spin_turn_index": int  -> index dans spin_order du joueur dont c'est le tour.
+# }
+ROOMS = {}
 
-document.querySelectorAll(".nav-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-        document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
-        document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
-        btn.classList.add("active");
-        activeTabId = btn.dataset.tab;
-        document.getElementById(activeTabId).classList.add("active");
-
-        // En ouvrant la discussion, on considère les messages comme lus.
-        if (activeTabId === "tab-chat") {
-            unreadChatCount = 0;
-            updateChatBadge();
-        }
-    });
-});
-
-// ---------- Onglet 1 : Bouteille ----------
-const bottleEl = document.getElementById("bottle");
-const bottleContainer = document.querySelector(".bottle-container");
-const spinBtn = document.getElementById("spin-btn");
-const spinResult = document.getElementById("spin-result");
-const turnIndicator = document.getElementById("turn-indicator");
-const choiceZone = document.getElementById("choice-zone");
-const questionCard = document.getElementById("question-card");
-const roundActionZone = document.getElementById("round-action-zone");
-const roundWaitingZone = document.getElementById("round-waiting-zone");
-const roundResultZone = document.getElementById("round-result-zone");
-
-const ACTION_MAX_DURATION_MS = 60000; // 1 minute max pour la vidéo d'action
-const BOTTLE_SPIN_DURATION_MS = 4000; // doit correspondre à la durée de transition CSS (.bottle)
-
-let roundInProgress = false; // true dès qu'une question est tirée, jusqu'à round_result/round_cancelled
-let currentTurnPseudo = null; // pseudo du joueur dont c'est le tour de lancer la bouteille
-let mediaStream = null;
-let mediaRecorder = null;
-let recordedChunks = [];
-let capturedBlob = null;
-let recordCountdownHandle = null;
-let recordTimeoutHandle = null;
-
-// Recalcule l'état du bouton "Tourner" + le message au-dessus, à chaque
-// changement de tour ou de manche en cours.
-function updateTurnUI() {
-    if (roundInProgress) {
-        // Une manche (choix/réponse/action) est en cours : le tour de spin
-        // reste affiché mais le bouton est de toute façon désactivé ailleurs.
-        return;
-    }
-    if (!currentTurnPseudo) {
-        turnIndicator.textContent = "";
-        spinBtn.disabled = false;
-        return;
-    }
-    if (currentTurnPseudo === myPseudo) {
-        turnIndicator.textContent = "🎯 C'est ton tour de lancer la bouteille !";
-        turnIndicator.classList.add("my-turn");
-        spinBtn.disabled = false;
-    } else {
-        turnIndicator.textContent = `⏳ C'est au tour de ${currentTurnPseudo} de lancer la bouteille.`;
-        turnIndicator.classList.remove("my-turn");
-        spinBtn.disabled = true;
-    }
-}
-
-socket.on("turn_update", (data) => {
-    currentTurnPseudo = data.pseudo;
-    updateTurnUI();
-});
-
-spinBtn.addEventListener("click", () => {
-    spinBtn.disabled = true;
-    questionCard.style.display = "none";
-    choiceZone.style.display = "none";
-    roundResultZone.style.display = "none";
-    socket.emit("spin_bottle", { code: ROOM_CODE });
-});
-
-socket.on("bottle_result", (data) => {
-    currentRotation += data.rotation;
-    bottleEl.style.transform = `rotate(${currentRotation}deg)`;
-    bottleContainer.classList.add("spinning");
-    setTimeout(() => {
-        bottleContainer.classList.remove("spinning");
-        spinResult.textContent = `🎯 ${data.chosen_pseudo} a été désigné(e) !`;
-        if (data.chosen_pseudo === myPseudo) {
-            choiceZone.style.display = "block";
-        }
-        // Le bouton reste désactivé : la manche (choix + réponse/preuve)
-        // doit se terminer avant de pouvoir relancer la bouteille.
-    }, BOTTLE_SPIN_DURATION_MS);
-});
-
-document.getElementById("btn-action").addEventListener("click", () => makeChoice("action"));
-document.getElementById("btn-verite").addEventListener("click", () => makeChoice("verite"));
+HEARTBEAT_TIMEOUT = 60  # secondes avant de considérer un joueur "inactif"
 
 
-function makeChoice(choice) {
-    const intensity = document.querySelector('input[name="intensity"]:checked').value;
-    socket.emit("make_choice", { code: ROOM_CODE, choice, intensity, pseudo: myPseudo });
-    choiceZone.style.display = "none";
-}
+def generate_room_code(length=6):
+    alphabet = string.ascii_uppercase + string.digits
+    while True:
+        code = "".join(random.choices(alphabet, k=length))
+        if code not in ROOMS:
+            return code
 
-// ----- Une question est tirée : la manche commence et bloque la bouteille -----
-socket.on("question_drawn", (data) => {
-    stopCamera();
-    roundInProgress = true;
-    spinBtn.disabled = true;
-    roundResultZone.style.display = "none";
 
-    const label = data.category === "action" ? "🎬 Action" : "🗣️ Vérité";
-    const intensityLabel = { leger: "Léger", ose: "Osé", tres_ose: "Très osé" }[data.intensity];
-    questionCard.innerHTML = `
-        <strong>${label}</strong> — ${escapeHtml(data.chosen_by)}
-        <p style="margin:14px 0 0;">${escapeHtml(data.text)}</p>
-        <span class="q-meta">Niveau : ${intensityLabel}</span>
-    `;
-    questionCard.style.display = "block";
+def room_exists(code):
+    return code in ROOMS and not db.is_room_expired(code)
 
-    if (data.chosen_by === myPseudo) {
-        roundWaitingZone.style.display = "none";
-        if (data.category === "verite") {
-            renderTruthForm();
-        } else {
-            renderActionCapture();
-        }
-    } else {
-        roundActionZone.style.display = "none";
-        roundActionZone.innerHTML = "";
-        roundWaitingZone.style.display = "block";
-        const verb = data.category === "verite" ? "réponde" : "envoie sa photo/vidéo";
-        roundWaitingZone.innerHTML = `<p class="waiting-msg">⏳ En attente que <strong>${escapeHtml(data.chosen_by)}</strong> ${verb}...</p>`;
-    }
-});
 
-// ----- Vérité : réponse obligatoire, envoyée à tout le salon -----
-function renderTruthForm() {
-    roundActionZone.style.display = "block";
-    roundActionZone.innerHTML = `
-        <p class="round-instructions">C'est ton tour : réponds en vérité. Le jeu reste bloqué pour tout le monde jusqu'à ton envoi.</p>
-        <textarea id="truth-answer-input" maxlength="800" placeholder="Écris ta réponse ici..."></textarea>
-        <button id="truth-answer-submit" class="btn-primary">Envoyer ma réponse</button>
-        <p id="truth-answer-error" class="alert-error" style="display:none;"></p>
-    `;
-    document.getElementById("truth-answer-submit").addEventListener("click", () => {
-        const input = document.getElementById("truth-answer-input");
-        const answer = input.value.trim();
-        const errEl = document.getElementById("truth-answer-error");
-        if (!answer) {
-            errEl.textContent = "La réponse ne peut pas être vide.";
-            errEl.style.display = "block";
-            return;
-        }
-        document.getElementById("truth-answer-submit").disabled = true;
-        socket.emit("submit_truth_answer", { code: ROOM_CODE, answer });
-    });
-}
-
-// ----- Action : caméra activée jusqu'à capture d'une photo ou vidéo (≤ 1 min) -----
-function renderActionCapture() {
-    roundActionZone.style.display = "block";
-    roundActionZone.innerHTML = `
-        <p class="round-instructions">C'est ton tour : réalise l'action, puis filme-la ou prends une photo (vidéo limitée à 1 minute). Le jeu reste bloqué pour tout le monde jusqu'à ton envoi.</p>
-        <video id="camera-preview" autoplay playsinline muted></video>
-        <div class="camera-controls" id="camera-controls">
-            <button id="camera-start-btn" class="btn-primary">🎥 Activer la caméra</button>
-        </div>
-        <p id="action-error" class="alert-error" style="display:none;"></p>
-    `;
-    document.getElementById("camera-start-btn").addEventListener("click", startCamera);
-}
-
-async function startCamera() {
-    const errEl = document.getElementById("action-error");
-    const preview = document.getElementById("camera-preview");
-    const controls = document.getElementById("camera-controls");
-    try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    } catch (e) {
-        errEl.textContent = "Impossible d'accéder à la caméra : " + e.message;
-        errEl.style.display = "block";
-        return;
-    }
-    preview.srcObject = mediaStream;
-    controls.innerHTML = `
-        <button id="photo-btn" class="btn-secondary">📸 Prendre une photo</button>
-        <button id="record-btn" class="btn-primary">⏺️ Filmer (max 1 min)</button>
-    `;
-    document.getElementById("photo-btn").addEventListener("click", capturePhoto);
-    document.getElementById("record-btn").addEventListener("click", startRecording);
-}
-
-function capturePhoto() {
-    const preview = document.getElementById("camera-preview");
-    const canvas = document.createElement("canvas");
-    canvas.width = preview.videoWidth;
-    canvas.height = preview.videoHeight;
-    canvas.getContext("2d").drawImage(preview, 0, 0);
-    canvas.toBlob((blob) => {
-        capturedBlob = blob;
-        finishCapture("image/jpeg");
-    }, "image/jpeg", 0.9);
-}
-
-function startRecording() {
-    recordedChunks = [];
-    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-        ? "video/webm;codecs=vp9" : "video/webm";
-    mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
-    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
-    mediaRecorder.onstop = () => {
-        capturedBlob = new Blob(recordedChunks, { type: mimeType });
-        finishCapture(mimeType);
-    };
-    mediaRecorder.start();
-
-    let remaining = 60;
-    const controls = document.getElementById("camera-controls");
-    controls.innerHTML = `<button id="stop-record-btn" class="btn-secondary">⏹️ Arrêter (<span id="record-countdown">${remaining}</span>s)</button>`;
-    document.getElementById("stop-record-btn").addEventListener("click", stopRecording);
-
-    recordCountdownHandle = setInterval(() => {
-        remaining -= 1;
-        const el = document.getElementById("record-countdown");
-        if (el) el.textContent = remaining;
-        if (remaining <= 0) stopRecording();
-    }, 1000);
-    recordTimeoutHandle = setTimeout(stopRecording, ACTION_MAX_DURATION_MS);
-}
-
-function stopRecording() {
-    clearInterval(recordCountdownHandle);
-    clearTimeout(recordTimeoutHandle);
-    if (mediaRecorder && mediaRecorder.state !== "inactive") {
-        mediaRecorder.stop();
-    }
-}
-
-function finishCapture(mimeType) {
-    stopCamera();
-    const isVideo = mimeType.startsWith("video");
-    roundActionZone.innerHTML = `
-        <p class="round-instructions">Aperçu de ta preuve :</p>
-        ${isVideo
-            ? `<video src="${URL.createObjectURL(capturedBlob)}" controls style="max-width:100%;border-radius:10px;"></video>`
-            : `<img src="${URL.createObjectURL(capturedBlob)}" style="max-width:100%;border-radius:10px;">`}
-        <div class="camera-controls">
-            <button id="action-retry-btn" class="btn-secondary">🔁 Recommencer</button>
-            <button id="action-send-btn" class="btn-primary">✅ Envoyer</button>
-        </div>
-        <p id="action-error" class="alert-error" style="display:none;"></p>
-    `;
-    document.getElementById("action-retry-btn").addEventListener("click", renderActionCapture);
-    document.getElementById("action-send-btn").addEventListener("click", sendActionProof);
-}
-
-function sendActionProof() {
-    const sendBtn = document.getElementById("action-send-btn");
-    const errEl = document.getElementById("action-error");
-    sendBtn.disabled = true;
-    const ext = capturedBlob.type.includes("video") ? "webm" : "jpg";
-    const formData = new FormData();
-    formData.append("pseudo", myPseudo);
-    formData.append("media", capturedBlob, `proof.${ext}`);
-
-    fetch(`/room/${ROOM_CODE}/submit_action`, { method: "POST", body: formData })
-        .then((r) => r.json())
-        .then((res) => {
-            if (!res.ok) {
-                errEl.textContent = res.error || "Erreur lors de l'envoi.";
-                errEl.style.display = "block";
-                sendBtn.disabled = false;
-            }
-            // Si ok, le serveur diffuse "round_result" qui nettoie l'UI pour tout le monde.
+def get_players_list(code):
+    room = ROOMS.get(code)
+    if not room:
+        return []
+    now = time.time()
+    players = []
+    for sid, info in room["players"].items():
+        status = "online" if (now - info["last_seen"]) < HEARTBEAT_TIMEOUT else "inactif"
+        players.append({
+            "pseudo": info["pseudo"],
+            "status": status,
+            "avatar_url": info.get("avatar_url"),
         })
-        .catch(() => {
-            errEl.textContent = "Erreur réseau lors de l'envoi.";
-            errEl.style.display = "block";
-            sendBtn.disabled = false;
-        });
-}
+    return players
 
-function stopCamera() {
-    clearInterval(recordCountdownHandle);
-    clearTimeout(recordTimeoutHandle);
-    if (mediaStream) {
-        mediaStream.getTracks().forEach((t) => t.stop());
-        mediaStream = null;
+
+# --- Tour de rôle pour lancer la bouteille -----------------------------------
+
+def get_current_turn_pseudo(room):
+    order = room.get("spin_order")
+    if not order:
+        return None
+    idx = room.get("spin_turn_index", 0) % len(order)
+    return order[idx]
+
+
+def broadcast_turn(code):
+    room = ROOMS.get(code)
+    if not room:
+        return
+    socketio.emit("turn_update", {"pseudo": get_current_turn_pseudo(room)}, to=code)
+
+
+def advance_turn(room):
+    order = room.get("spin_order")
+    if not order:
+        return
+    room["spin_turn_index"] = (room.get("spin_turn_index", 0) + 1) % len(order)
+
+
+def remove_from_spin_order(room, pseudo):
+    """Retire un joueur qui part de l'ordre de passage, en réajustant l'index
+    courant pour que le tour ne saute pas ou ne se bloque pas."""
+    order = room.get("spin_order")
+    if not order or pseudo not in order:
+        return
+    idx = order.index(pseudo)
+    order.remove(pseudo)
+    if not order:
+        room["spin_order"] = None
+        room["spin_turn_index"] = 0
+        return
+    current = room.get("spin_turn_index", 0)
+    if idx < current:
+        room["spin_turn_index"] = (current - 1) % len(order)
+    else:
+        room["spin_turn_index"] = current % len(order)
+
+
+# --- Routes HTTP -------------------------------------------------------------
+
+@app.route("/")
+def home():
+    return render_template("index.html")
+
+
+@app.route("/sw.js")
+def service_worker():
+    # Servi depuis la racine (et pas /static/sw.js) pour que la portée du
+    # service worker couvre tout le site, pas seulement /static/.
+    response = send_from_directory(
+        os.path.join(app.root_path, "static"), "sw.js", mimetype="application/javascript"
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@app.route("/create_room", methods=["POST"])
+def create_room():
+    max_players = request.form.get("max_players", type=int) or None
+    expires_hours = request.form.get("expires_hours", type=int) or None
+
+    code = generate_room_code()
+    ROOMS[code] = {
+        "players": {},
+        "used_questions": [],
+        "last_spin": None,
+        "max_players": max_players,
+        "pending": None,
+        "spin_order": None,
+        "spin_turn_index": 0,
     }
-    mediaRecorder = null;
-}
+    db.register_room(code, expires_hours=expires_hours, max_players=max_players)
+    return redirect(url_for("room_page", code=code))
 
-// ----- Fin de manche (vérité ou action) : résultat diffusé à tout le monde -----
-socket.on("round_result", (data) => {
-    stopCamera();
-    roundInProgress = false;
-    roundActionZone.style.display = "none";
-    roundActionZone.innerHTML = "";
-    roundWaitingZone.style.display = "none";
-    questionCard.style.display = "none";
 
-    const label = data.type === "verite" ? "🗣️ Vérité" : "🎬 Action";
-    let bodyHtml;
-    if (data.type === "verite") {
-        bodyHtml = `<p class="truth-answer">💬 ${escapeHtml(data.answer)}</p>`;
-    } else {
-        bodyHtml = data.media_kind === "video"
-            ? `<video src="${data.media_url}" controls style="max-width:100%;border-radius:10px;margin-top:10px;"></video>`
-            : `<img src="${data.media_url}" style="max-width:100%;border-radius:10px;margin-top:10px;">`;
+@app.route("/join/<code>")
+def join_link(code):
+    """Point d'entrée pour un lien d'invitation direct."""
+    code = code.upper()
+    if not room_exists(code):
+        return render_template("index.html", error=f"Le salon {code} n'existe pas ou a expiré.")
+    return redirect(url_for("room_page", code=code))
+
+
+@app.route("/join_by_code", methods=["POST"])
+def join_by_code():
+    code = (request.form.get("code") or "").strip().upper()
+    if not room_exists(code):
+        return render_template("index.html", error=f"Le salon {code} n'existe pas ou a expiré.")
+    return redirect(url_for("room_page", code=code))
+
+
+@app.route("/room/<code>")
+def room_page(code):
+    code = code.upper()
+    if not room_exists(code):
+        return render_template("index.html", error=f"Le salon {code} n'existe pas ou a expiré.")
+    join_url = request.host_url.rstrip("/") + url_for("join_link", code=code)
+    room_meta = db.get_room_meta(code)
+    return render_template(
+        "room.html",
+        code=code,
+        join_url=join_url,
+        max_players=room_meta.get("max_players") if room_meta else None,
+    )
+
+
+@app.route("/room/<code>/qrcode.png")
+def room_qrcode(code):
+    code = code.upper()
+    if not room_exists(code):
+        abort(404)
+    join_url = request.host_url.rstrip("/") + url_for("join_link", code=code)
+    img = qrcode.make(join_url)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return send_file(buf, mimetype="image/png")
+
+
+@app.route("/room/<code>/confessions")
+def room_confessions(code):
+    code = code.upper()
+    if not room_exists(code):
+        abort(404)
+    return jsonify(db.get_confessions(code))
+
+
+@app.route("/room/<code>/messages")
+def room_messages(code):
+    """Historique du chat instantané, avec l'avatar actuel de chaque pseudo."""
+    code = code.upper()
+    if not room_exists(code):
+        abort(404)
+    messages = db.get_chat_messages(code)
+    avatars = db.get_profiles_map(code)
+    for m in messages:
+        m["avatar_url"] = avatars.get(m["pseudo"])
+    return jsonify(messages)
+
+
+def allowed_action_file(filename):
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return ext in ALLOWED_EXTENSIONS
+
+
+@app.route("/room/<code>/submit_action", methods=["POST"])
+def submit_action(code):
+    """Réception de la preuve (photo/vidéo) pour une manche 'Action' en cours."""
+    code = code.upper()
+    room = ROOMS.get(code)
+    if not room:
+        return jsonify({"ok": False, "error": "Salon introuvable."}), 404
+
+    pending = room.get("pending")
+    pseudo = (request.form.get("pseudo") or "").strip()
+    if not pending or pending["category"] != "action" or pending["pseudo"] != pseudo:
+        return jsonify({"ok": False, "error": "Aucune manche 'action' en attente pour ce joueur."}), 400
+
+    file = request.files.get("media")
+    if not file or file.filename == "":
+        return jsonify({"ok": False, "error": "Aucun fichier reçu."}), 400
+    if not allowed_action_file(file.filename):
+        return jsonify({"ok": False, "error": "Format de fichier non autorisé."}), 400
+
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    unique_name = secure_filename(f"{code}_{uuid.uuid4().hex}.{ext}")
+    room_dir = os.path.join(UPLOAD_FOLDER, code)
+    os.makedirs(room_dir, exist_ok=True)
+    file.save(os.path.join(room_dir, unique_name))
+
+    media_kind = "video" if ext in ("webm", "mp4", "mov") else "image"
+    media_url = url_for("static", filename=f"uploads/{code}/{unique_name}")
+
+    room["pending"] = None
+    socketio.emit(
+        "round_result",
+        {
+            "type": "action",
+            "pseudo": pending["pseudo"],
+            "intensity": pending["intensity"],
+            "question": pending["question_text"],
+            "media_url": media_url,
+            "media_kind": media_kind,
+        },
+        to=code,
+    )
+    return jsonify({"ok": True, "media_url": media_url})
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_too_large(e):
+    return jsonify({"ok": False, "error": "Fichier trop volumineux (30 Mo max)."}), 413
+
+
+@app.route("/room/<code>/set_avatar", methods=["POST"])
+def set_avatar(code):
+    """Upload (ou remplacement) de la photo de profil d'un joueur du salon."""
+    code = code.upper()
+    room = ROOMS.get(code)
+    if not room:
+        return jsonify({"ok": False, "error": "Salon introuvable."}), 404
+
+    pseudo = (request.form.get("pseudo") or "").strip()[:24]
+    if not pseudo:
+        return jsonify({"ok": False, "error": "Pseudo requis."}), 400
+
+    file = request.files.get("avatar")
+    if not file or file.filename == "":
+        return jsonify({"ok": False, "error": "Aucun fichier reçu."}), 400
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_AVATAR_EXTENSIONS:
+        return jsonify({"ok": False, "error": "Format d'image non autorisé (jpg, png, webp)."}), 400
+
+    unique_name = secure_filename(f"{code}_{pseudo}_{uuid.uuid4().hex}.{ext}")
+    room_dir = os.path.join(AVATAR_FOLDER, code)
+    os.makedirs(room_dir, exist_ok=True)
+    file.save(os.path.join(room_dir, unique_name))
+
+    avatar_url = url_for("static", filename=f"avatars/{code}/{unique_name}")
+
+    # Persisté en base pour survivre aux redémarrages/reconnexions.
+    db.set_profile_avatar(code, pseudo, avatar_url)
+
+    # Mise à jour immédiate de l'état en mémoire pour ce joueur (peu importe son sid).
+    for info in room["players"].values():
+        if info["pseudo"].lower() == pseudo.lower():
+            info["avatar_url"] = avatar_url
+
+    socketio.emit("presence_update", {"players": get_players_list(code)}, to=code)
+    return jsonify({"ok": True, "avatar_url": avatar_url})
+
+
+# --- Événements Socket.IO ----------------------------------------------------
+
+@socketio.on("join_room_event")
+def handle_join(data):
+    code = (data.get("code") or "").upper()
+    pseudo = (data.get("pseudo") or "").strip()[:24]
+
+    if not room_exists(code):
+        emit("error_message", {"message": "Salon introuvable ou expiré."})
+        return
+    if not pseudo:
+        emit("error_message", {"message": "Pseudo requis."})
+        return
+
+    room = ROOMS[code]
+
+    # Vérifier la limite de places
+    if room["max_players"] and len(room["players"]) >= room["max_players"]:
+        already_in = any(p["pseudo"] == pseudo for p in room["players"].values())
+        if not already_in:
+            emit("error_message", {"message": "Le salon est complet."})
+            return
+
+    # Vérifier l'unicité du pseudo dans le salon.
+    # Si un ancien sid porte déjà ce pseudo, on considère qu'il s'agit d'une
+    # RECONNEXION (Socket.IO change de sid à chaque reconnexion) et on
+    # remplace l'ancienne entrée au lieu de bloquer le joueur.
+    for old_sid, info in list(room["players"].items()):
+        if info["pseudo"].lower() == pseudo.lower() and old_sid != request.sid:
+            del room["players"][old_sid]
+
+    sio_join_room(code)
+    room["players"][request.sid] = {
+        "pseudo": pseudo,
+        "last_seen": time.time(),
+        "status": "online",
+        "avatar_url": db.get_profile_avatar(code, pseudo),
     }
-    roundResultZone.innerHTML = `
-        <strong>${label}</strong> — ${escapeHtml(data.pseudo)}
-        <p style="margin:10px 0 0;">${escapeHtml(data.question)}</p>
-        ${bodyHtml}
-    `;
-    roundResultZone.style.display = "block";
-    spinResult.textContent = "";
-    updateTurnUI();
-});
+    session["pseudo"] = pseudo
+    session["code"] = code
 
-// ----- Le joueur désigné a quitté avant de terminer : on débloque -----
-socket.on("round_cancelled", (data) => {
-    stopCamera();
-    roundInProgress = false;
-    roundActionZone.style.display = "none";
-    roundActionZone.innerHTML = "";
-    roundWaitingZone.style.display = "none";
-    questionCard.style.display = "none";
-    spinResult.textContent = `⚠️ ${data.message}`;
-    updateTurnUI();
-});
+    # Si la partie a déjà commencé (ordre de passage établi) et que ce pseudo
+    # n'y figure pas encore (nouveau joueur en cours de partie), on l'ajoute
+    # à la fin de la file — il aura son tour plus tard, sans perturber l'ordre déjà tiré.
+    if room.get("spin_order") and pseudo not in room["spin_order"]:
+        room["spin_order"].append(pseudo)
 
-// ---------- Onglet 2 : Confessions ----------
-const confessInput = document.getElementById("confess-input");
-const confessAnon = document.getElementById("confess-anon");
-const confessSubmit = document.getElementById("confess-submit");
-const confessList = document.getElementById("confess-list");
+    emit("joined", {"pseudo": pseudo, "code": code})
+    emit("presence_update", {"players": get_players_list(code)}, to=code)
+    emit(
+        "system_message",
+        {"message": f"{pseudo} a rejoint le salon."},
+        to=code,
+    )
 
-confessSubmit.addEventListener("click", () => {
-    const message = confessInput.value.trim();
-    if (!message) return;
-    socket.emit("post_confession", {
-        code: ROOM_CODE,
-        pseudo: myPseudo,
-        message,
-        anonymous: confessAnon.checked,
-    });
-    confessInput.value = "";
-});
+    # On informe ce client précis (et tout le salon, au cas où la liste a
+    # changé) de qui a la main pour lancer la bouteille.
+    emit("turn_update", {"pseudo": get_current_turn_pseudo(room)})
+    if room.get("spin_order"):
+        broadcast_turn(code)
 
-socket.on("new_confession", (data) => {
-    appendConfession(data.id, data.pseudo, data.message, data.created_at, []);
-    scrollConfessionsToBottom();
-});
+    # Si une manche était déjà en cours (ex: reconnexion après coupure réseau),
+    # on renvoie son état à ce client précis pour qu'il retrouve l'UI de blocage.
+    pending = room.get("pending")
+    if pending:
+        emit(
+            "question_drawn",
+            {
+                "category": pending["category"],
+                "intensity": pending["intensity"],
+                "text": pending["question_text"],
+                "chosen_by": pending["pseudo"],
+            },
+        )
 
-socket.on("new_comment", (data) => {
-    appendComment(data.confession_id, data.pseudo, data.message, data.created_at);
-    scrollConfessionsToBottom();
-});
 
-// Ajoute une confession EN BAS de la liste (les plus récentes apparaissent
-// en dernier, comme un fil de discussion classique).
-function appendConfession(id, pseudo, message, time, comments) {
-    const item = document.createElement("div");
-    item.className = "confess-item";
-    item.dataset.confessionId = id;
-    item.innerHTML = `
-        <div class="c-header">
-            <span class="c-pseudo">${escapeHtml(pseudo)}</span>
-            <span>${time || ""}</span>
-        </div>
-        <div class="c-body">${escapeHtml(message)}</div>
-        <div class="c-actions">
-            <button class="c-action-btn c-mention-btn" title="Mentionner cette personne">🔗 Mentionner</button>
-            <button class="c-action-btn c-comment-toggle-btn" title="Commenter">💬 Commenter</button>
-        </div>
-        <div class="c-comments"></div>
-        <div class="c-comment-form" style="display:none;">
-            <input type="text" class="c-comment-input" maxlength="300" placeholder="Écris un commentaire...">
-            <button class="btn-secondary c-comment-send-btn">Envoyer</button>
-        </div>
-    `;
+@socketio.on("heartbeat")
+def handle_heartbeat(data):
+    code = (data.get("code") or "").upper()
+    room = ROOMS.get(code)
+    if room and request.sid in room["players"]:
+        room["players"][request.sid]["last_seen"] = time.time()
 
-    item.querySelector(".c-mention-btn").addEventListener("click", () => {
-        mentionConfession(pseudo);
-    });
 
-    const toggleBtn = item.querySelector(".c-comment-toggle-btn");
-    const form = item.querySelector(".c-comment-form");
-    toggleBtn.addEventListener("click", () => {
-        form.style.display = form.style.display === "none" ? "flex" : "none";
-        if (form.style.display === "flex") form.querySelector(".c-comment-input").focus();
-    });
+@socketio.on("spin_bottle")
+def handle_spin(data):
+    code = (data.get("code") or "").upper()
+    room = ROOMS.get(code)
+    if not room:
+        emit("error_message", {"message": "Salon introuvable."})
+        return
 
-    const sendCommentBtn = item.querySelector(".c-comment-send-btn");
-    const commentInput = item.querySelector(".c-comment-input");
-    const sendComment = () => {
-        const message2 = commentInput.value.trim();
-        if (!message2) return;
-        socket.emit("post_comment", {
-            code: ROOM_CODE,
-            confession_id: id,
-            pseudo: myPseudo,
-            message: message2,
-        });
-        commentInput.value = "";
-    };
-    sendCommentBtn.addEventListener("click", sendComment);
-    commentInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") sendComment();
-    });
+    if room.get("pending"):
+        emit("error_message", {"message": "Une manche est en cours, attends la réponse avant de relancer la bouteille."})
+        return
 
-    confessList.appendChild(item);
+    players = list(room["players"].values())
+    if len(players) < 2:
+        emit("error_message", {"message": "Il faut au moins 2 joueurs pour lancer la bouteille."})
+        return
 
-    (comments || []).forEach((c) => {
-        const ctime = new Date(c.created_at + "Z").toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-        appendComment(id, c.pseudo, c.message, ctime);
-    });
-}
+    # Premier lancer de la partie : on tire l'ordre de passage une seule fois.
+    if not room.get("spin_order"):
+        pseudos = [p["pseudo"] for p in players]
+        random.shuffle(pseudos)
+        room["spin_order"] = pseudos
+        room["spin_turn_index"] = 0
+        broadcast_turn(code)
 
-// Insère une référence "@pseudo" dans le champ de saisie principal, pour
-// écrire une nouvelle confession qui mentionne cette personne.
-function mentionConfession(pseudo) {
-    document.querySelector('.nav-btn[data-tab="tab-confess"]').click();
-    const prefix = `@${pseudo} `;
-    if (!confessInput.value.startsWith(prefix)) {
-        confessInput.value = prefix + confessInput.value;
+    current_turn_pseudo = get_current_turn_pseudo(room)
+    sender_info = room["players"].get(request.sid)
+    if not sender_info or sender_info["pseudo"] != current_turn_pseudo:
+        emit(
+            "error_message",
+            {"message": f"Ce n'est pas ton tour de lancer la bouteille. C'est à {current_turn_pseudo}."},
+        )
+        return
+
+    chosen = random.choice(players)
+    room["last_spin"] = chosen["pseudo"]
+
+    # Angle de rotation aléatoire pour l'animation côté client (plusieurs tours + offset)
+    rotation_degrees = random.randint(3, 6) * 360 + random.randint(0, 359)
+
+    emit(
+        "bottle_result",
+        {"chosen_pseudo": chosen["pseudo"], "rotation": rotation_degrees},
+        to=code,
+    )
+
+    # Le lancer a été utilisé : on passe la main au joueur suivant dans l'ordre.
+    advance_turn(room)
+    broadcast_turn(code)
+
+
+@socketio.on("make_choice")
+def handle_choice(data):
+    code = (data.get("code") or "").upper()
+    choice = data.get("choice")  # 'action' ou 'verite'
+    intensity = data.get("intensity", "leger")  # 'leger', 'ose', 'tres_ose'
+    pseudo = data.get("pseudo", "?")
+
+    room = ROOMS.get(code)
+    if not room:
+        emit("error_message", {"message": "Salon introuvable."})
+        return
+    if choice not in ("action", "verite"):
+        emit("error_message", {"message": "Choix invalide."})
+        return
+
+    # Seul le joueur désigné par la bouteille peut choisir, et une seule fois.
+    player_info = room["players"].get(request.sid)
+    if not player_info or player_info["pseudo"] != room.get("last_spin"):
+        emit("error_message", {"message": "Ce n'est pas ton tour."})
+        return
+    if room.get("pending"):
+        emit("error_message", {"message": "Une manche est déjà en cours."})
+        return
+
+    question = db.get_random_question(choice, intensity, exclude_ids=room["used_questions"])
+    if question is None:
+        # Toutes les questions ont été utilisées : on réinitialise le cycle pour cette catégorie
+        room["used_questions"] = []
+        question = db.get_random_question(choice, intensity, exclude_ids=[])
+
+    if question is None:
+        emit("error_message", {"message": "Aucune question disponible pour cette catégorie."})
+        return
+
+    room["used_questions"].append(question["id"])
+
+    # Ouvre la manche : bloque la bouteille pour tout le monde jusqu'à
+    # ce que le joueur désigné réponde (vérité) ou envoie sa preuve (action).
+    room["pending"] = {
+        "sid": request.sid,
+        "pseudo": pseudo,
+        "category": choice,
+        "intensity": intensity,
+        "question_text": question["text"],
+        "started_at": time.time(),
     }
-    confessInput.focus();
-    confessInput.setSelectionRange(confessInput.value.length, confessInput.value.length);
-}
 
-function appendComment(confessionId, pseudo, message, time) {
-    const parent = confessList.querySelector(`.confess-item[data-confession-id="${confessionId}"] .c-comments`);
-    if (!parent) return;
-    const item = document.createElement("div");
-    item.className = "c-comment-item";
-    item.innerHTML = `
-        <span class="c-comment-pseudo">${escapeHtml(pseudo)}</span>
-        <span class="c-comment-body">${escapeHtml(message)}</span>
-        <span class="c-comment-time">${time || ""}</span>
-    `;
-    parent.appendChild(item);
-}
+    emit(
+        "question_drawn",
+        {
+            "category": choice,
+            "intensity": intensity,
+            "text": question["text"],
+            "chosen_by": pseudo,
+        },
+        to=code,
+    )
 
-function scrollConfessionsToBottom() {
-    confessList.scrollTop = confessList.scrollHeight;
-}
 
-function loadConfessions() {
-    fetch(`/room/${ROOM_CODE}/confessions`)
-        .then((r) => r.json())
-        .then((rows) => {
-            confessList.innerHTML = "";
-            // Le serveur renvoie déjà les confessions triées du plus ancien
-            // au plus récent (avec leurs commentaires imbriqués).
-            rows.forEach((row) => {
-                const displayName = row.anonymous ? "Anonyme" : row.pseudo;
-                const time = new Date(row.created_at + "Z").toLocaleTimeString("fr-FR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                });
-                appendConfession(row.id, displayName, row.message, time, row.comments);
-            });
-            scrollConfessionsToBottom();
-        });
-}
+@socketio.on("submit_truth_answer")
+def handle_truth_answer(data):
+    code = (data.get("code") or "").upper()
+    answer = (data.get("answer") or "").strip()[:800]
 
-// ---------- Onglet 3 : Discussion instantanée ----------
-const chatList = document.getElementById("chat-list");
-const chatInput = document.getElementById("chat-input");
-const chatSubmit = document.getElementById("chat-submit");
+    room = ROOMS.get(code)
+    if not room:
+        emit("error_message", {"message": "Salon introuvable."})
+        return
 
-function sendChatMessage() {
-    const message = chatInput.value.trim();
-    if (!message) return;
-    socket.emit("send_chat_message", { code: ROOM_CODE, message });
-    chatInput.value = "";
-}
+    pending = room.get("pending")
+    player_info = room["players"].get(request.sid)
+    if not pending or pending["category"] != "verite" or not player_info \
+            or player_info["pseudo"] != pending["pseudo"]:
+        emit("error_message", {"message": "Aucune manche 'vérité' en attente pour toi."})
+        return
+    if not answer:
+        emit("error_message", {"message": "La réponse ne peut pas être vide."})
+        return
 
-chatSubmit.addEventListener("click", sendChatMessage);
-chatInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") sendChatMessage();
-});
+    room["pending"] = None
+    emit(
+        "round_result",
+        {
+            "type": "verite",
+            "pseudo": pending["pseudo"],
+            "intensity": pending["intensity"],
+            "question": pending["question_text"],
+            "answer": answer,
+        },
+        to=code,
+    )
 
-let unreadChatCount = 0;
-const chatBadge = document.getElementById("badge-chat");
 
-function updateChatBadge() {
-    if (unreadChatCount > 0) {
-        chatBadge.textContent = unreadChatCount > 9 ? "9+" : unreadChatCount;
-        chatBadge.style.display = "flex";
-    } else {
-        chatBadge.style.display = "none";
-    }
-}
+@socketio.on("post_confession")
+def handle_confession(data):
+    code = (data.get("code") or "").upper()
+    pseudo = data.get("pseudo", "Anonyme")
+    message = (data.get("message") or "").strip()[:500]
+    anonymous = bool(data.get("anonymous", False))
 
-socket.on("new_chat_message", (data) => {
-    appendChatMessage(data.pseudo, data.avatar_url, data.message, data.created_at);
-    scrollChatToBottom();
+    if not room_exists(code) or not message:
+        return
 
-    // On ne compte pas comme "non lu" le message qu'on vient d'envoyer soi-même,
-    // ni les messages reçus pendant qu'on a déjà l'onglet Discussion ouvert.
-    if (activeTabId !== "tab-chat" && data.pseudo !== myPseudo) {
-        unreadChatCount += 1;
-        updateChatBadge();
-    }
-});
+    confession_id = db.save_confession(code, pseudo, message, anonymous)
+    display_name = "Anonyme" if anonymous else pseudo
 
-function appendChatMessage(pseudo, avatarUrl, message, time) {
-    const mine = pseudo === myPseudo;
-    const item = document.createElement("div");
-    item.className = "chat-msg" + (mine ? " chat-msg-mine" : "");
-    item.innerHTML = `
-        <div class="chat-avatar">${avatarUrl ? `<img src="${avatarUrl}" alt="">` : escapeHtml(initials(pseudo))}</div>
-        <div class="chat-bubble">
-            ${mine ? "" : `<div class="chat-pseudo">${escapeHtml(pseudo)}</div>`}
-            <div class="chat-text">${escapeHtml(message)}</div>
-            <div class="chat-time">${time || ""}</div>
-        </div>
-    `;
-    chatList.appendChild(item);
-}
+    emit(
+        "new_confession",
+        {
+            "id": confession_id,
+            "pseudo": display_name,
+            "message": message,
+            "created_at": datetime.utcnow().strftime("%H:%M"),
+        },
+        to=code,
+    )
 
-function initials(pseudo) {
-    return (pseudo || "?").trim().charAt(0).toUpperCase();
-}
 
-function scrollChatToBottom() {
-    chatList.scrollTop = chatList.scrollHeight;
-}
+@socketio.on("post_comment")
+def handle_comment(data):
+    code = (data.get("code") or "").upper()
+    pseudo = (data.get("pseudo") or "Anonyme").strip()[:24]
+    message = (data.get("message") or "").strip()[:300]
+    confession_id = data.get("confession_id")
 
-function loadChatMessages() {
-    fetch(`/room/${ROOM_CODE}/messages`)
-        .then((r) => r.json())
-        .then((rows) => {
-            chatList.innerHTML = "";
-            rows.forEach((row) => {
-                const time = new Date(row.created_at + "Z").toLocaleTimeString("fr-FR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                });
-                appendChatMessage(row.pseudo, row.avatar_url, row.message, time);
-            });
-            scrollChatToBottom();
-        });
-}
+    if not room_exists(code) or not message or not confession_id:
+        return
 
-// ---------- Onglet 3 : Présence ----------
-const presenceList = document.getElementById("presence-list");
-const presenceBadge = document.getElementById("badge-presence");
+    db.save_comment(confession_id, code, pseudo, message)
 
-socket.on("presence_update", (data) => {
-    presenceBadge.textContent = data.players.length > 9 ? "9+" : data.players.length;
+    emit(
+        "new_comment",
+        {
+            "confession_id": confession_id,
+            "pseudo": pseudo,
+            "message": message,
+            "created_at": datetime.utcnow().strftime("%H:%M"),
+        },
+        to=code,
+    )
 
-    presenceList.innerHTML = "";
-    data.players.forEach((p) => {
-        const li = document.createElement("li");
-        li.innerHTML = `
-            <span class="status-dot ${p.status === "inactif" ? "inactif" : ""}"></span>
-            <span class="presence-avatar">${p.avatar_url ? `<img src="${p.avatar_url}" alt="">` : escapeHtml(initials(p.pseudo))}</span>
-            ${escapeHtml(p.pseudo)}
-        `;
-        presenceList.appendChild(li);
-    });
 
-    // Met à jour mon propre aperçu si mon avatar a changé (ex: après upload).
-    const me = data.players.find((p) => p.pseudo === myPseudo);
-    if (me) setMyAvatarPreview(me.avatar_url);
-});
+@socketio.on("send_chat_message")
+def handle_chat_message(data):
+    """Discussion instantanée : diffusion immédiate à tout le salon (+ historique en base)."""
+    code = (data.get("code") or "").upper()
+    message = (data.get("message") or "").strip()[:1000]
 
-socket.on("system_message", (data) => {
-    console.log(data.message);
-});
+    room = ROOMS.get(code)
+    if not room or not message:
+        return
 
-// ---------- Onglet 4 (Présence) : photo de profil ----------
-const avatarInput = document.getElementById("avatar-input");
-const avatarPreview = document.getElementById("my-avatar-preview");
-const avatarError = document.getElementById("avatar-error");
+    player_info = room["players"].get(request.sid)
+    if not player_info:
+        emit("error_message", {"message": "Tu dois être dans le salon pour discuter."})
+        return
+    pseudo = player_info["pseudo"]
 
-function setMyAvatarPreview(avatarUrl) {
-    avatarPreview.innerHTML = avatarUrl
-        ? `<img src="${avatarUrl}" alt="">`
-        : escapeHtml(initials(myPseudo));
-}
+    message_id = db.save_chat_message(code, pseudo, message)
 
-avatarInput.addEventListener("change", () => {
-    const file = avatarInput.files[0];
-    if (!file) return;
-    avatarError.style.display = "none";
+    emit(
+        "new_chat_message",
+        {
+            "id": message_id,
+            "pseudo": pseudo,
+            "avatar_url": player_info.get("avatar_url"),
+            "message": message,
+            "created_at": datetime.utcnow().strftime("%H:%M"),
+        },
+        to=code,
+    )
 
-    const formData = new FormData();
-    formData.append("pseudo", myPseudo);
-    formData.append("avatar", file);
 
-    fetch(`/room/${ROOM_CODE}/set_avatar`, { method: "POST", body: formData })
-        .then((r) => r.json())
-        .then((res) => {
-            if (!res.ok) {
-                avatarError.textContent = res.error || "Erreur lors de l'envoi.";
-                avatarError.style.display = "block";
-                return;
-            }
-            setMyAvatarPreview(res.avatar_url);
-            // Le serveur diffuse aussi "presence_update" à tout le salon,
-            // donc le chat et la liste des participants se mettent à jour tout seuls.
-        })
-        .catch(() => {
-            avatarError.textContent = "Erreur réseau lors de l'envoi.";
-            avatarError.style.display = "block";
-        });
-});
+@socketio.on("disconnect")
+def handle_disconnect():
+    for code, room in list(ROOMS.items()):
+        if request.sid in room["players"]:
+            pseudo = room["players"][request.sid]["pseudo"]
+            del room["players"][request.sid]
+            emit("presence_update", {"players": get_players_list(code)}, to=code)
+            emit("system_message", {"message": f"{pseudo} a quitté le salon."}, to=code)
 
-// ---------- Onglet 4 : Invitation ----------
-document.getElementById("copy-link-btn").addEventListener("click", () => {
-    const input = document.getElementById("invite-link");
-    input.select();
-    navigator.clipboard.writeText(input.value).then(() => {
-        const btn = document.getElementById("copy-link-btn");
-        const original = btn.textContent;
-        btn.textContent = "Copié !";
-        setTimeout(() => (btn.textContent = original), 1500);
-    });
-});
+            # Retire le joueur de l'ordre de passage de la bouteille (s'il y
+            # figurait) et notifie le salon du tour éventuellement mis à jour.
+            remove_from_spin_order(room, pseudo)
+            broadcast_turn(code)
 
-(function setupShare() {
-    const inviteLink = document.getElementById("invite-link").value;
-    const shareText = `Rejoins mon salon "Action ou Vérité" ! Code : ${ROOM_CODE}`;
-    const fullMessage = `${shareText} ${inviteLink}`;
+            # Si le joueur qui partait était en pleine manche, on débloque
+            # le salon pour ne pas laisser tout le monde bloqué indéfiniment.
+            pending = room.get("pending")
+            if pending and pending["sid"] == request.sid:
+                room["pending"] = None
+                emit(
+                    "round_cancelled",
+                    {"pseudo": pseudo, "message": f"{pseudo} a quitté avant de terminer sa manche."},
+                    to=code,
+                )
+            break
 
-    const nativeShareBtn = document.getElementById("native-share-btn");
-    nativeShareBtn.addEventListener("click", async () => {
-        if (navigator.share) {
-            try {
-                await navigator.share({ title: "Action ou Vérité", text: shareText, url: inviteLink });
-            } catch (e) {
-                // Annulé par l'utilisateur ou non supporté : rien à faire.
-            }
-        } else {
-            // Pas de support natif (souvent le cas sur desktop) : on affiche
-            // les liens de partage directs juste en dessous.
-            document.getElementById("share-links").scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-    });
 
-    document.getElementById("share-whatsapp").href =
-        `https://wa.me/?text=${encodeURIComponent(fullMessage)}`;
-    document.getElementById("share-facebook").href =
-        `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(inviteLink)}`;
-    document.getElementById("share-telegram").href =
-        `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent(shareText)}`;
-    document.getElementById("share-x").href =
-        `https://twitter.com/intent/tweet?text=${encodeURIComponent(fullMessage)}`;
-})();
-
-// ---------- Utilitaire ----------
-function escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-}
+if __name__ == "__main__":
+    print("Serveur lancé sur http://localhost:5000")
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
