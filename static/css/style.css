@@ -174,7 +174,7 @@ body {
 }
 
 /* ---------- App layout ---------- */
-.app-wrapper { max-width: 640px; margin: 0 auto; padding-bottom: 40px; }
+.app-wrapper { max-width: 640px; margin: 0 auto; padding-bottom: 88px; }
 
 .app-header {
     display: flex;
@@ -193,37 +193,70 @@ body {
 
 .my-pseudo { color: var(--accent); font-weight: 600; }
 
-.tabs {
-    display: flex;
-    overflow-x: auto;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-card);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-}
-
-.tab-btn {
-    flex: 1;
-    padding: 14px 8px;
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    cursor: pointer;
-    white-space: nowrap;
-    border-bottom: 2px solid transparent;
-}
-
-.tab-btn.active {
-    color: var(--text);
-    border-bottom: 2px solid var(--accent);
-}
-
 .tab-panel { display: none; padding: 24px 20px; }
 .tab-panel.active { display: block; }
 
 .tab-description { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px; }
+
+/* ---------- Navigation du bas (façon Facebook) ---------- */
+.bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    max-width: 640px;
+    margin: 0 auto;
+    display: flex;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    padding: 6px 2px calc(6px + env(safe-area-inset-bottom));
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.nav-btn {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: 8px 2px 6px;
+    cursor: pointer;
+    border-radius: 10px;
+}
+
+.nav-icon { font-size: 1.3rem; line-height: 1; }
+.nav-label { font-size: 0.62rem; font-weight: 600; }
+
+.nav-btn.active {
+    color: var(--accent);
+    background: rgba(217, 70, 168, 0.1);
+}
+
+.nav-btn.active .nav-icon { transform: scale(1.08); }
+
+.nav-badge {
+    position: absolute;
+    top: 2px;
+    right: calc(50% - 22px);
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nav-badge-count { background: var(--success); }
 
 /* ---------- Bouteille ---------- */
 .bottle-zone { text-align: center; padding: 20px 0; }
@@ -745,7 +778,8 @@ body {
 .invite-places { color: var(--text-muted); font-size: 0.85rem; }
 
 @media (max-width: 480px) {
-    .tab-btn { font-size: 0.72rem; padding: 12px 4px; }
+    .nav-label { font-size: 0.58rem; }
+    .nav-icon { font-size: 1.15rem; }
 }
 
 /* ---------- Bannière "Installer l'application" (PWA) ---------- */
