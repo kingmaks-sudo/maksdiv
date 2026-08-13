@@ -1,22 +1,25 @@
 """
-Module de gestion de la base de données SQLite.
+Module de gestion de la base de données PostgreSQL (hébergée sur Supabase).
 Stocke : la banque de questions (Action / Vérité) et les confessions/partages
 publiés dans les salons.
+
+Connexion via la variable d'environnement DATABASE_URL (définie sur Render).
 """
 
-import sqlite3
-import json
 import os
+import json
 import random
 from datetime import datetime, timedelta
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "app.db")
+import psycopg2
+import psycopg2.extras
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
 SEED_PATH = os.path.join(os.path.dirname(__file__), "questions_seed.json")
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
 
@@ -27,16 +30,16 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS questions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             category TEXT NOT NULL,       -- 'action' ou 'verite'
-            intensity TEXT NOT NULL,      -- 'leger', 'ose', 'tres_ose'
+            intensity TEXT NOT NULL,      -- 'leger', 'ose', 'tres_ose', 'amis', 'adultes', 'extreme'
             text TEXT NOT NULL
         )
     """)
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS confessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             room_code TEXT NOT NULL,
             pseudo TEXT NOT NULL,
             message TEXT NOT NULL,
@@ -47,7 +50,7 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS confession_comments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             confession_id INTEGER NOT NULL,
             room_code TEXT NOT NULL,
             pseudo TEXT NOT NULL,
@@ -58,7 +61,7 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS chat_messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             room_code TEXT NOT NULL,
             pseudo TEXT NOT NULL,
             message TEXT NOT NULL,
@@ -99,11 +102,12 @@ def init_db():
                 for text in texts:
                     rows.append((category, intensity, text))
         cur.executemany(
-            "INSERT INTO questions (category, intensity, text) VALUES (?, ?, ?)",
+            "INSERT INTO questions (category, intensity, text) VALUES (%s, %s, %s)",
             rows,
         )
         conn.commit()
 
+    cur.close()
     conn.close()
 
 
@@ -114,20 +118,21 @@ def get_random_question(category, intensity, exclude_ids=None):
     cur = conn.cursor()
 
     if exclude_ids:
-        placeholders = ",".join("?" for _ in exclude_ids)
+        placeholders = ",".join(["%s"] * len(exclude_ids))
         query = f"""
             SELECT * FROM questions
-            WHERE category = ? AND intensity = ?
+            WHERE category = %s AND intensity = %s
             AND id NOT IN ({placeholders})
         """
         cur.execute(query, [category, intensity] + exclude_ids)
     else:
         cur.execute(
-            "SELECT * FROM questions WHERE category = ? AND intensity = ?",
+            "SELECT * FROM questions WHERE category = %s AND intensity = %s",
             (category, intensity),
         )
 
     rows = cur.fetchall()
+    cur.close()
     conn.close()
 
     if not rows:
@@ -143,11 +148,12 @@ def save_confession(room_code, pseudo, message, anonymous=False):
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO confessions (room_code, pseudo, message, anonymous, created_at)
-           VALUES (?, ?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s, %s) RETURNING id""",
         (room_code, pseudo, message, int(anonymous), datetime.utcnow().isoformat()),
     )
+    confession_id = cur.fetchone()["id"]
     conn.commit()
-    confession_id = cur.lastrowid
+    cur.close()
     conn.close()
     return confession_id
 
@@ -160,8 +166,8 @@ def get_confessions(room_code, limit=100):
     # "fil de discussion", nouveauté en bas).
     cur.execute(
         """SELECT * FROM (
-               SELECT * FROM confessions WHERE room_code = ?
-               ORDER BY created_at DESC LIMIT ?
+               SELECT * FROM confessions WHERE room_code = %s
+               ORDER BY created_at DESC LIMIT %s
            ) sub
            ORDER BY sub.created_at ASC""",
         (room_code, limit),
@@ -170,7 +176,7 @@ def get_confessions(room_code, limit=100):
 
     if rows:
         ids = [r["id"] for r in rows]
-        placeholders = ",".join("?" for _ in ids)
+        placeholders = ",".join(["%s"] * len(ids))
         cur.execute(
             f"""SELECT * FROM confession_comments
                 WHERE confession_id IN ({placeholders})
@@ -183,6 +189,7 @@ def get_confessions(room_code, limit=100):
         for r in rows:
             r["comments"] = comments_by_confession.get(r["id"], [])
 
+    cur.close()
     conn.close()
     return rows
 
@@ -192,11 +199,12 @@ def save_comment(confession_id, room_code, pseudo, message):
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO confession_comments (confession_id, room_code, pseudo, message, created_at)
-           VALUES (?, ?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s, %s) RETURNING id""",
         (confession_id, room_code, pseudo, message, datetime.utcnow().isoformat()),
     )
+    comment_id = cur.fetchone()["id"]
     conn.commit()
-    comment_id = cur.lastrowid
+    cur.close()
     conn.close()
     return comment_id
 
@@ -208,18 +216,25 @@ def register_room(code, expires_hours=None, max_players=None):
     if expires_hours:
         expires_at = (datetime.utcnow() + timedelta(hours=expires_hours)).isoformat()
     cur.execute(
-        "INSERT OR REPLACE INTO rooms (code, created_at, expires_at, max_players) VALUES (?, ?, ?, ?)",
+        """INSERT INTO rooms (code, created_at, expires_at, max_players)
+           VALUES (%s, %s, %s, %s)
+           ON CONFLICT (code) DO UPDATE SET
+               created_at = excluded.created_at,
+               expires_at = excluded.expires_at,
+               max_players = excluded.max_players""",
         (code, datetime.utcnow().isoformat(), expires_at, max_players),
     )
     conn.commit()
+    cur.close()
     conn.close()
 
 
 def get_room_meta(code):
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM rooms WHERE code = ?", (code,))
+    cur.execute("SELECT * FROM rooms WHERE code = %s", (code,))
     row = cur.fetchone()
+    cur.close()
     conn.close()
     return dict(row) if row else None
 
@@ -238,11 +253,12 @@ def save_chat_message(room_code, pseudo, message):
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO chat_messages (room_code, pseudo, message, created_at)
-           VALUES (?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s) RETURNING id""",
         (room_code, pseudo, message, datetime.utcnow().isoformat()),
     )
+    message_id = cur.fetchone()["id"]
     conn.commit()
-    message_id = cur.lastrowid
+    cur.close()
     conn.close()
     return message_id
 
@@ -253,13 +269,14 @@ def get_chat_messages(room_code, limit=200):
     cur = conn.cursor()
     cur.execute(
         """SELECT * FROM (
-               SELECT * FROM chat_messages WHERE room_code = ?
-               ORDER BY created_at DESC LIMIT ?
+               SELECT * FROM chat_messages WHERE room_code = %s
+               ORDER BY created_at DESC LIMIT %s
            ) sub
            ORDER BY sub.created_at ASC""",
         (room_code, limit),
     )
     rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
     conn.close()
     return rows
 
@@ -271,13 +288,14 @@ def set_profile_avatar(room_code, pseudo, avatar_path):
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO profiles (room_code, pseudo, avatar_path, updated_at)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(room_code, pseudo) DO UPDATE SET
+           VALUES (%s, %s, %s, %s)
+           ON CONFLICT (room_code, pseudo) DO UPDATE SET
                avatar_path = excluded.avatar_path,
                updated_at = excluded.updated_at""",
         (room_code, pseudo, avatar_path, datetime.utcnow().isoformat()),
     )
     conn.commit()
+    cur.close()
     conn.close()
 
 
@@ -285,10 +303,11 @@ def get_profile_avatar(room_code, pseudo):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT avatar_path FROM profiles WHERE room_code = ? AND pseudo = ?",
+        "SELECT avatar_path FROM profiles WHERE room_code = %s AND pseudo = %s",
         (room_code, pseudo),
     )
     row = cur.fetchone()
+    cur.close()
     conn.close()
     return row["avatar_path"] if row else None
 
@@ -297,7 +316,8 @@ def get_profiles_map(room_code):
     """Renvoie { pseudo: avatar_path } pour tout le salon, en une seule requête."""
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT pseudo, avatar_path FROM profiles WHERE room_code = ?", (room_code,))
+    cur.execute("SELECT pseudo, avatar_path FROM profiles WHERE room_code = %s", (room_code,))
     result = {r["pseudo"]: r["avatar_path"] for r in cur.fetchall()}
+    cur.close()
     conn.close()
     return result
