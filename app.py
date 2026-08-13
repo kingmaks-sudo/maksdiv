@@ -244,6 +244,19 @@ def room_messages(code):
         m["avatar_url"] = avatars.get(m["pseudo"])
     return jsonify(messages)
 
+@app.route("/room/<code>/private_messages/<other_pseudo>")
+def room_private_messages(code):
+    """Historique de la conversation privée entre l'utilisateur courant
+    (retrouvé via la session) et un autre pseudo du même salon."""
+    code = code.upper()
+    if not room_exists(code):
+        abort(404)
+    my_pseudo = session.get("pseudo")
+    if not my_pseudo:
+        abort(403)
+    other_pseudo = request.view_args["other_pseudo"]
+    return jsonify(db.get_private_conversation(code, my_pseudo, other_pseudo))
+
 
 def allowed_action_file(filename):
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -644,6 +657,43 @@ def handle_chat_message(data):
         },
         to=code,
     )
+
+
+@socketio.on("send_private_message")
+def handle_private_message(data):
+    """Message privé entre deux joueurs d'un même salon. Diffusé uniquement
+    aux sockets des deux personnes concernées (pas à tout le salon)."""
+    code = (data.get("code") or "").upper()
+    recipient = (data.get("recipient") or "").strip()[:24]
+    message = (data.get("message") or "").strip()[:1000]
+
+    room = ROOMS.get(code)
+    if not room or not message or not recipient:
+        return
+
+    sender_info = room["players"].get(request.sid)
+    if not sender_info:
+        emit("error_message", {"message": "Tu dois être dans le salon pour envoyer un message privé."})
+        return
+    sender = sender_info["pseudo"]
+
+    if recipient.lower() == sender.lower():
+        return
+
+    message_id = db.save_private_message(code, sender, recipient, message)
+    payload = {
+        "id": message_id,
+        "sender": sender,
+        "recipient": recipient,
+        "message": message,
+        "created_at": datetime.utcnow().strftime("%H:%M"),
+    }
+
+    # Envoi uniquement au destinataire (tous ses sids, en cas de multi-onglets)
+    # et à l'expéditeur lui-même (pour que son propre message s'affiche aussi).
+    for sid, info in room["players"].items():
+        if info["pseudo"].lower() in (sender.lower(), recipient.lower()):
+            emit("new_private_message", payload, to=sid)
 
 
 @socketio.on("disconnect")
