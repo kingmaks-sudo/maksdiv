@@ -132,6 +132,7 @@
             </div>
         </div>
         <h3>Participants connectés</h3>
+        <p class="tab-description">Appuie sur un participant pour lui envoyer un message privé.</p>
         <ul id="presence-list" class="presence-list"></ul>
     </section>
 
@@ -183,6 +184,21 @@
             <span class="nav-label">Inviter</span>
         </button>
     </nav>
+</div>
+
+<!-- Fenêtre de conversation privée (masquée par défaut) -->
+<div id="private-chat-overlay" class="overlay" style="display:none;">
+    <div class="overlay-card private-chat-card">
+        <div class="private-chat-header">
+            <span id="private-chat-title" class="private-chat-title"></span>
+            <button id="private-chat-close" class="private-chat-close-btn">✕</button>
+        </div>
+        <div id="private-chat-list" class="chat-list private-chat-list"></div>
+        <div class="chat-form">
+            <input type="text" id="private-chat-input" maxlength="1000" placeholder="Écris un message privé...">
+            <button id="private-chat-submit" class="btn-primary">➤</button>
+        </div>
+    </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
