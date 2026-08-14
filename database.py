@@ -1,7 +1,7 @@
 """
 Module de gestion de la base de données PostgreSQL (hébergée sur Supabase).
-Stocke : la banque de questions (Action / Vérité) et les confessions/partages
-publiés dans les salons.
+Stocke : la banque de questions (Action / Vérité), les confessions/partages
+publiés dans les salons, et les messages privés entre joueurs.
 
 Connexion via la variable d'environnement DATABASE_URL (définie sur Render).
 """
@@ -64,6 +64,17 @@ def init_db():
             id SERIAL PRIMARY KEY,
             room_code TEXT NOT NULL,
             pseudo TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS private_messages (
+            id SERIAL PRIMARY KEY,
+            room_code TEXT NOT NULL,
+            sender TEXT NOT NULL,
+            recipient TEXT NOT NULL,
             message TEXT NOT NULL,
             created_at TEXT NOT NULL
         )
@@ -274,6 +285,44 @@ def get_chat_messages(room_code, limit=200):
            ) sub
            ORDER BY sub.created_at ASC""",
         (room_code, limit),
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return rows
+
+
+# --- Messagerie privée ----------------------------------------------------
+
+def save_private_message(room_code, sender, recipient, message):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO private_messages (room_code, sender, recipient, message, created_at)
+           VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+        (room_code, sender, recipient, message, datetime.utcnow().isoformat()),
+    )
+    message_id = cur.fetchone()["id"]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return message_id
+
+
+def get_private_conversation(room_code, user_a, user_b, limit=200):
+    """Renvoie l'historique des messages privés entre deux pseudos d'un
+    même salon, triés du plus ancien au plus récent."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT * FROM (
+               SELECT * FROM private_messages
+               WHERE room_code = %s
+                 AND ((sender = %s AND recipient = %s) OR (sender = %s AND recipient = %s))
+               ORDER BY created_at DESC LIMIT %s
+           ) sub
+           ORDER BY sub.created_at ASC""",
+        (room_code, user_a, user_b, user_b, user_a, limit),
     )
     rows = [dict(r) for r in cur.fetchall()]
     cur.close()
