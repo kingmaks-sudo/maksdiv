@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Action ou Vérité — Accueil</title>
+<title>Salon {{ code }} — Action ou Vérité</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
 <!-- PWA : rend l'app installable ("Ajouter à l'écran d'accueil") -->
@@ -16,55 +16,196 @@
 <meta name="apple-mobile-web-app-title" content="MAKSDIV">
 </head>
 <body>
-<div class="home-wrapper">
-    <div class="home-card">
-        <h1 class="brand">🍾 Action ou Vérité</h1>
-        <p class="subtitle">Un jeu social pour adultes, entre amis, à distance ou en présentiel.</p>
 
-        {% if error %}
-        <div class="alert-error">{{ error }}</div>
-        {% endif %}
+<!-- Écran de saisie du pseudo -->
+<div id="pseudo-overlay" class="overlay">
+    <div class="overlay-card">
+        <h2>Rejoindre le salon {{ code }}</h2>
+        <input type="text" id="pseudo-input" maxlength="24" placeholder="Choisis ton pseudo">
+        <button id="pseudo-submit" class="btn-primary">Entrer</button>
+        <p id="pseudo-error" class="alert-error" style="display:none;"></p>
+    </div>
+</div>
 
-        <div class="age-gate">
-            <label>
-                <input type="checkbox" id="age-confirm">
-                J'ai 18 ans ou plus et j'accepte que ce jeu contienne du contenu suggéré pour adultes.
-            </label>
+<div id="app" class="app-wrapper" style="display:none;">
+    <header class="app-header">
+        <div class="room-code-badge">Salon : <strong>{{ code }}</strong></div>
+        <div class="my-pseudo" id="my-pseudo-label"></div>
+    </header>
+
+    <!-- Rangée "Stories" : participants en ligne -->
+    <div id="presence-strip" class="presence-strip"></div>
+
+    <!-- Onglet 1 : Action ou Vérité -->
+    <section id="tab-game" class="tab-panel active">
+        <div class="bottle-zone">
+            <div class="bottle-container">
+                <div id="bottle" class="bottle">
+                    <svg width="80" height="147" viewBox="0 0 120 220" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="bottleGradient" x1="0" y1="0" x2="1" y2="1">
+                                <stop offset="0%" stop-color="#d946a8"/>
+                                <stop offset="100%" stop-color="#6d5bff"/>
+                            </linearGradient>
+                            <linearGradient id="bottleCapGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#2c2c3a"/>
+                                <stop offset="100%" stop-color="#17171f"/>
+                            </linearGradient>
+                        </defs>
+                        <!-- Bouchon -->
+                        <rect x="50" y="2" width="20" height="16" rx="4" fill="url(#bottleCapGradient)"/>
+                        <!-- Goulot -->
+                        <rect x="52" y="16" width="16" height="42" fill="url(#bottleGradient)"/>
+                        <!-- Épaule -->
+                        <polygon points="52,58 68,58 100,94 20,94" fill="url(#bottleGradient)"/>
+                        <!-- Corps -->
+                        <rect x="20" y="94" width="80" height="112" rx="18" fill="url(#bottleGradient)"/>
+                        <!-- Étiquette -->
+                        <rect x="26" y="132" width="68" height="34" rx="6" fill="#0f0f14" opacity="0.35"/>
+                        <!-- Reflet verre -->
+                        <rect x="34" y="22" width="9" height="178" rx="4.5" fill="#ffffff" opacity="0.18" transform="skewX(-6)"/>
+                    </svg>
+                </div>
+            </div>
+            <p id="turn-indicator" class="turn-indicator"></p>
+            <button id="spin-btn" class="btn-primary">Tourner la bouteille</button>
+            <p id="spin-result" class="spin-result"></p>
         </div>
 
-        <div class="home-actions">
-            <div class="home-block">
-                <h2>Créer un salon</h2>
-                <form action="{{ url_for('create_room') }}" method="POST" id="create-form">
-                    <label>Nombre de places max (optionnel)</label>
-                    <input type="number" name="max_players" min="2" max="50" placeholder="Illimité">
-                    <button type="submit" class="btn-primary" id="create-btn" disabled>Créer le salon</button>
-                </form>
+        <div id="choice-zone" class="choice-zone" style="display:none;">
+            <p>Choisis :</p>
+            <div class="intensity-picker">
+                <label><input type="radio" name="intensity" value="leger" checked> Léger</label>
+                <label><input type="radio" name="intensity" value="ose"> Osé</label>
+                <label><input type="radio" name="intensity" value="tres_ose"> Très osé</label>
             </div>
-
-            <div class="divider">ou</div>
-
-            <div class="home-block">
-                <h2>Rejoindre un salon</h2>
-                <form action="{{ url_for('join_by_code') }}" method="POST" id="join-form">
-                    <label>Code du salon</label>
-                    <input type="text" name="code" maxlength="6" placeholder="AB3F9K" style="text-transform:uppercase" required>
-                    <button type="submit" class="btn-secondary" id="join-btn" disabled>Rejoindre</button>
-                </form>
+            <div class="choice-buttons">
+                <button class="btn-primary" id="btn-action">Action</button>
+                <button class="btn-secondary" id="btn-verite">Vérité</button>
             </div>
+        </div>
+
+        <div id="question-card" class="question-card" style="display:none;"></div>
+
+        <!-- Zone d'action pour le joueur désigné (réponse vérité / caméra) -->
+        <div id="round-action-zone" class="round-zone" style="display:none;"></div>
+
+        <!-- Message d'attente pour les autres joueurs -->
+        <div id="round-waiting-zone" class="round-zone" style="display:none;"></div>
+
+        <!-- Résultat affiché à tout le monde une fois la manche terminée -->
+        <div id="round-result-zone" class="round-result" style="display:none;"></div>
+    </section>
+
+    <!-- Onglet 2 : Confessions -->
+    <section id="tab-confess" class="tab-panel">
+        <p class="tab-description">Partage librement quelque chose sur toi. Espace d'auto-expression volontaire : on parle de soi, pas des autres.</p>
+        <div class="confess-form">
+            <textarea id="confess-input" maxlength="500" placeholder="Écris ta confession ou ton partage..."></textarea>
+            <div class="confess-controls">
+                <label><input type="checkbox" id="confess-anon"> Publier en anonyme</label>
+                <button id="confess-submit" class="btn-primary">Publier</button>
+            </div>
+        </div>
+        <div id="confess-list" class="confess-list"></div>
+    </section>
+
+    <!-- Onglet 3 : Discussion instantanée -->
+    <section id="tab-chat" class="tab-panel">
+        <div id="chat-list" class="chat-list"></div>
+        <div class="chat-form">
+            <input type="text" id="chat-input" maxlength="1000" placeholder="Écris un message...">
+            <button id="chat-submit" class="btn-primary">➤</button>
+        </div>
+    </section>
+
+    <!-- Onglet 4 : Présence -->
+    <section id="tab-presence" class="tab-panel">
+        <div class="my-profile-box">
+            <div class="my-avatar-preview" id="my-avatar-preview">?</div>
+            <div class="my-profile-info">
+                <p class="my-profile-label">Ma photo de profil</p>
+                <p class="my-profile-hint">Facultatif — visible dans le chat et la liste des participants.</p>
+                <label for="avatar-input" class="btn-secondary avatar-upload-btn">📷 Choisir une photo</label>
+                <input type="file" id="avatar-input" accept="image/png,image/jpeg,image/webp" style="display:none;">
+                <p id="avatar-error" class="alert-error" style="display:none;"></p>
+            </div>
+        </div>
+        <h3>Participants connectés</h3>
+        <p class="tab-description">Appuie sur un participant pour lui envoyer un message privé.</p>
+        <ul id="presence-list" class="presence-list"></ul>
+    </section>
+
+    <!-- Onglet 5 : Invitation -->
+    <section id="tab-invite" class="tab-panel">
+        <h3>Inviter des participants</h3>
+        <div class="invite-box">
+            <img src="{{ url_for('room_qrcode', code=code) }}" alt="QR code d'invitation" class="qr-img">
+            <div class="invite-link-row">
+                <input type="text" id="invite-link" value="{{ join_url }}" readonly>
+                <button id="copy-link-btn" class="btn-secondary">Copier</button>
+            </div>
+            <button id="native-share-btn" class="btn-primary share-native-btn">📤 Partager le lien</button>
+            <div class="share-links" id="share-links">
+                <a id="share-whatsapp" class="share-link whatsapp" target="_blank" rel="noopener">WhatsApp</a>
+                <a id="share-facebook" class="share-link facebook" target="_blank" rel="noopener">Facebook</a>
+                <a id="share-telegram" class="share-link telegram" target="_blank" rel="noopener">Telegram</a>
+                <a id="share-x" class="share-link x" target="_blank" rel="noopener">X</a>
+            </div>
+            <p class="invite-code-display">Ou code du salon : <strong>{{ code }}</strong></p>
+            {% if max_players %}
+            <p class="invite-places">Places max : {{ max_players }}</p>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Navigation principale, en bas de l'écran -->
+    <nav class="bottom-nav">
+        <button class="nav-btn active" data-tab="tab-game">
+            <span class="nav-icon">🍾</span>
+            <span class="nav-label">Jeu</span>
+        </button>
+        <button class="nav-btn" data-tab="tab-confess">
+            <span class="nav-icon">💬</span>
+            <span class="nav-label">Confessions</span>
+        </button>
+        <button class="nav-btn" data-tab="tab-chat">
+            <span class="nav-icon">🗨️</span>
+            <span class="nav-label">Discussion</span>
+            <span class="nav-badge" id="badge-chat" style="display:none;">0</span>
+        </button>
+        <button class="nav-btn" data-tab="tab-presence">
+            <span class="nav-icon">🟢</span>
+            <span class="nav-label">En ligne</span>
+            <span class="nav-badge nav-badge-count" id="badge-presence">0</span>
+        </button>
+        <button class="nav-btn" data-tab="tab-invite">
+            <span class="nav-icon">📨</span>
+            <span class="nav-label">Inviter</span>
+        </button>
+    </nav>
+</div>
+
+<!-- Fenêtre de conversation privée (masquée par défaut) -->
+<div id="private-chat-overlay" class="overlay" style="display:none;">
+    <div class="overlay-card private-chat-card">
+        <div class="private-chat-header">
+            <span id="private-chat-title" class="private-chat-title"></span>
+            <button id="private-chat-close" class="private-chat-close-btn">✕</button>
+        </div>
+        <div id="private-chat-list" class="chat-list private-chat-list"></div>
+        <div class="chat-form">
+            <input type="text" id="private-chat-input" maxlength="1000" placeholder="Écris un message privé...">
+            <button id="private-chat-submit" class="btn-primary">➤</button>
         </div>
     </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 <script>
-const ageBox = document.getElementById('age-confirm');
-const createBtn = document.getElementById('create-btn');
-const joinBtn = document.getElementById('join-btn');
-ageBox.addEventListener('change', () => {
-    createBtn.disabled = !ageBox.checked;
-    joinBtn.disabled = !ageBox.checked;
-});
+const ROOM_CODE = "{{ code }}";
 </script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
 <script src="{{ url_for('static', filename='js/pwa.js') }}"></script>
 </body>
 </html>
