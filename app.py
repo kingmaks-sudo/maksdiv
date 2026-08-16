@@ -149,6 +149,20 @@ def home():
     return render_template("index.html")
 
 
+@app.route("/health")
+def health_check():
+    """Ping de santé : interroge la base pour éviter la pause Supabase après 7 jours d'inactivité."""
+    try:
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        conn.close()
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/sw.js")
 def service_worker():
     # Servi depuis la racine (et pas /static/sw.js) pour que la portée du
