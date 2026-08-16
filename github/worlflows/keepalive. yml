@@ -1,0 +1,14 @@
+name: Keep Supabase & Render Alive
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # toutes les 6 heures
+  workflow_dispatch:         # permet de le lancer manuellement aussi
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health check endpoint
+        run: |
+          curl -f https://TON-URL-RENDER.onrender.com/health || echo "Ping échoué"
