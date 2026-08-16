@@ -38,8 +38,6 @@
                 <form action="{{ url_for('create_room') }}" method="POST" id="create-form">
                     <label>Nombre de places max (optionnel)</label>
                     <input type="number" name="max_players" min="2" max="50" placeholder="Illimité">
-                    <label>Expiration du lien (heures, optionnel)</label>
-                    <input type="number" name="expires_hours" min="1" max="168" placeholder="Jamais">
                     <button type="submit" class="btn-primary" id="create-btn" disabled>Créer le salon</button>
                 </form>
             </div>
