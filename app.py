@@ -4,6 +4,7 @@ Application web multi-joueurs de divertissement social.
 - Onglet 2 : Confessions / partages personnels
 - Onglet 3 : Présence en ligne
 - Onglet 4 : Invitation (lien + QR code)
+- Onglet 5 : Dames (solo IA ou multijoueur)
 
 Lancement : python app.py
 Puis ouvrir http://localhost:5000
@@ -65,6 +66,8 @@ ALLOWED_AVATAR_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 #   "spin_order": [pseudo, ...] | None  -> ordre de passage pour APPUYER sur la
 #                 bouteille, tiré aléatoirement une seule fois au premier lancer.
 #   "spin_turn_index": int  -> index dans spin_order du joueur dont c'est le tour.
+#   "checkers_matches": { match_id: {"players": {pseudo: color}, "starting_color": str} }
+#                 -> parties de dames multijoueur en cours dans ce salon.
 # }
 ROOMS = {}
 
@@ -188,6 +191,7 @@ def create_room():
         "pending": None,
         "spin_order": None,
         "spin_turn_index": 0,
+        "checkers_matches": {},  # match_id -> {"players": {pseudo: color}, "starting_color": str}
     }
     db.register_room(code, expires_hours=expires_hours, max_players=max_players)
     return redirect(url_for("room_page", code=code))
@@ -708,6 +712,111 @@ def handle_private_message(data):
     for sid, info in room["players"].items():
         if info["pseudo"].lower() in (sender.lower(), recipient.lower()):
             emit("new_private_message", payload, to=sid)
+
+
+# --- Jeu de dames -------------------------------------------------------------
+
+@socketio.on("checkers_invite")
+def handle_checkers_invite(data):
+    """Un joueur invite un autre pseudo du même salon à une partie de dames."""
+    code = (data.get("code") or "").upper()
+    to_pseudo = (data.get("to_pseudo") or "").strip()
+    room = ROOMS.get(code)
+    if not room:
+        return
+    sender_info = room["players"].get(request.sid)
+    if not sender_info:
+        return
+    from_pseudo = sender_info["pseudo"]
+
+    for sid, info in room["players"].items():
+        if info["pseudo"] == to_pseudo:
+            emit("checkers_invite_received", {"from_pseudo": from_pseudo}, to=sid)
+
+
+@socketio.on("checkers_decline")
+def handle_checkers_decline(data):
+    """Le joueur invité refuse la partie."""
+    code = (data.get("code") or "").upper()
+    from_pseudo = (data.get("from_pseudo") or "").strip()  # celui qui avait invité
+    room = ROOMS.get(code)
+    if not room:
+        return
+    decliner_info = room["players"].get(request.sid)
+    if not decliner_info:
+        return
+
+    for sid, info in room["players"].items():
+        if info["pseudo"] == from_pseudo:
+            emit("checkers_invite_declined", {"pseudo": decliner_info["pseudo"]}, to=sid)
+
+
+@socketio.on("checkers_accept")
+def handle_checkers_accept(data):
+    """Le joueur invité accepte : on crée le match et on prévient les deux joueurs."""
+    code = (data.get("code") or "").upper()
+    from_pseudo = (data.get("from_pseudo") or "").strip()  # celui qui avait invité
+    room = ROOMS.get(code)
+    if not room:
+        return
+    accepter_info = room["players"].get(request.sid)
+    if not accepter_info:
+        return
+    to_pseudo = accepter_info["pseudo"]  # celui qui accepte
+
+    match_id = uuid.uuid4().hex[:8]
+    players = {from_pseudo: "w", to_pseudo: "b"}
+    room["checkers_matches"][match_id] = {"players": players, "starting_color": "w"}
+
+    emit(
+        "checkers_game_start",
+        {"match_id": match_id, "players": players, "starting_color": "w"},
+        to=code,
+    )
+
+
+@socketio.on("checkers_move")
+def handle_checkers_move(data):
+    """Relaie un tour complet (from + liste de sauts) à l'adversaire du même match."""
+    code = (data.get("code") or "").upper()
+    match_id = data.get("match_id")
+    from_pos = data.get("from")
+    steps = data.get("steps")
+    room = ROOMS.get(code)
+    if not room:
+        return
+    sender_info = room["players"].get(request.sid)
+    match = room["checkers_matches"].get(match_id)
+    if not sender_info or not match:
+        return
+
+    emit(
+        "checkers_move_made",
+        {"match_id": match_id, "pseudo": sender_info["pseudo"], "from": from_pos, "steps": steps},
+        to=code,
+        include_self=False,
+    )
+
+
+@socketio.on("checkers_resign")
+def handle_checkers_resign(data):
+    """Un joueur abandonne la partie en cours."""
+    code = (data.get("code") or "").upper()
+    match_id = data.get("match_id")
+    room = ROOMS.get(code)
+    if not room:
+        return
+    sender_info = room["players"].get(request.sid)
+    if not sender_info:
+        return
+
+    room["checkers_matches"].pop(match_id, None)
+    emit(
+        "checkers_resign_notice",
+        {"match_id": match_id, "pseudo": sender_info["pseudo"]},
+        to=code,
+        include_self=False,
+    )
 
 
 @socketio.on("disconnect")
