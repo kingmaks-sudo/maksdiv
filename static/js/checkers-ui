@@ -1,0 +1,380 @@
+// ============================================================================
+// Dames — Interface (rendu + interactions + solo IA + multijoueur Socket.IO)
+// Dépend de : checkers.js (window.CheckersEngine), et des variables globales
+// déjà définies dans app.js : socket, myPseudo, ROOM_CODE, escapeHtml().
+// ============================================================================
+
+(function () {
+    const Engine = window.CheckersEngine;
+    const SIZE = Engine.SIZE;
+
+    // ---------- Éléments DOM (voir templates/room.html) ----------
+    const menuEl = document.getElementById("checkers-mode-menu");
+    const soloBtn = document.getElementById("checkers-solo-btn");
+    const multiBtn = document.getElementById("checkers-multi-btn");
+    const invitePanel = document.getElementById("checkers-invite-panel");
+    const inviteList = document.getElementById("checkers-invite-list");
+    const inviteBanner = document.getElementById("checkers-invite-banner");
+    const gameArea = document.getElementById("checkers-game-area");
+    const boardEl = document.getElementById("checkers-board");
+    const statusEl = document.getElementById("checkers-status");
+    const newGameBtn = document.getElementById("checkers-new-game-btn");
+    const resignBtn = document.getElementById("checkers-resign-btn");
+    const backBtn = document.getElementById("checkers-back-btn");
+
+    // ---------- État de la partie en cours (local) ----------
+    let state = null;
+    /* state = {
+        mode: 'solo' | 'multi',
+        board, currentColor, myColor,
+        matchId, opponentPseudo,
+        selected: [r,c] | null,
+        destinations: [{to:[r,c], captured:[r,c]|null}],
+        forcedContinue: bool,
+        turnFrom: [r,c] | null,
+        turnSteps: [{to, captured}],
+        over: bool,
+    } */
+
+    let otherPlayers = []; // pseudos des autres joueurs en ligne dans le salon
+
+    // ---------- Aide : perspective (chaque joueur voit ses pièces en bas) ----------
+    function flipFor(color) {
+        return color === "b"; // les "noirs" voient le plateau retourné
+    }
+    function visualToLogical(vr, vc, flip) {
+        return flip ? [SIZE - 1 - vr, SIZE - 1 - vc] : [vr, vc];
+    }
+
+    // ---------- Menu ----------
+    function showMenu() {
+        state = null;
+        menuEl.style.display = "block";
+        invitePanel.style.display = "none";
+        inviteBanner.style.display = "none";
+        gameArea.style.display = "none";
+    }
+
+    function showInvitePanel() {
+        menuEl.style.display = "none";
+        invitePanel.style.display = "block";
+        renderInviteList();
+    }
+
+    function renderInviteList() {
+        inviteList.innerHTML = "";
+        const others = otherPlayers.filter((p) => p !== myPseudo);
+        if (others.length === 0) {
+            inviteList.innerHTML = `<p class="waiting-msg">Aucun autre joueur en ligne pour l'instant.</p>`;
+            return;
+        }
+        others.forEach((pseudo) => {
+            const item = document.createElement("div");
+            item.className = "checkers-invite-item";
+            item.innerHTML = `<span>${escapeHtml(pseudo)}</span><button class="btn-primary checkers-invite-send-btn">Inviter</button>`;
+            item.querySelector(".checkers-invite-send-btn").addEventListener("click", () => {
+                socket.emit("checkers_invite", { code: ROOM_CODE, to_pseudo: pseudo });
+                item.querySelector("button").textContent = "Invitation envoyée...";
+                item.querySelector("button").disabled = true;
+            });
+            inviteList.appendChild(item);
+        });
+    }
+
+    soloBtn.addEventListener("click", () => startSoloGame());
+    multiBtn.addEventListener("click", () => showInvitePanel());
+    backBtn.addEventListener("click", () => showMenu());
+
+    // ---------- Démarrage d'une partie ----------
+    function startSoloGame() {
+        state = {
+            mode: "solo",
+            board: Engine.createInitialBoard(),
+            currentColor: "w",
+            myColor: "w",
+            matchId: null,
+            opponentPseudo: "Ordinateur",
+            selected: null,
+            destinations: [],
+            turnFrom: null,
+            turnSteps: [],
+            over: false,
+        };
+        openGameArea();
+    }
+
+    function startMultiGame(matchId, myColor, opponentPseudo, startingColor) {
+        state = {
+            mode: "multi",
+            board: Engine.createInitialBoard(),
+            currentColor: startingColor,
+            myColor,
+            matchId,
+            opponentPseudo,
+            selected: null,
+            destinations: [],
+            turnFrom: null,
+            turnSteps: [],
+            over: false,
+        };
+        openGameArea();
+    }
+
+    function openGameArea() {
+        menuEl.style.display = "none";
+        invitePanel.style.display = "none";
+        inviteBanner.style.display = "none";
+        gameArea.style.display = "block";
+        renderBoard();
+        updateStatus();
+    }
+
+    // ---------- Rendu du plateau ----------
+    function renderBoard() {
+        boardEl.innerHTML = "";
+        const flip = flipFor(state.myColor);
+        for (let vr = 0; vr < SIZE; vr++) {
+            for (let vc = 0; vc < SIZE; vc++) {
+                const [lr, lc] = visualToLogical(vr, vc, flip);
+                const dark = (lr + lc) % 2 === 1;
+                const sq = document.createElement("div");
+                sq.className = "checkers-square " + (dark ? "dark" : "light");
+                sq.dataset.r = lr;
+                sq.dataset.c = lc;
+
+                if (dark) {
+                    const isSelected = state.selected && state.selected[0] === lr && state.selected[1] === lc;
+                    const isDest = state.destinations.some((d) => d.to[0] === lr && d.to[1] === lc);
+                    if (isSelected) sq.classList.add("selected");
+                    if (isDest) sq.classList.add("destination");
+
+                    const piece = state.board[lr][lc];
+                    if (piece) {
+                        const pieceEl = document.createElement("div");
+                        pieceEl.className = "checkers-piece " + (piece.color === "w" ? "piece-w" : "piece-b");
+                        if (piece.king) pieceEl.classList.add("king");
+                        sq.appendChild(pieceEl);
+                    }
+                    sq.addEventListener("click", () => handleSquareClick(lr, lc));
+                }
+                boardEl.appendChild(sq);
+            }
+        }
+    }
+
+    function updateStatus() {
+        if (state.over) return;
+        if (state.currentColor === state.myColor) {
+            statusEl.textContent = "🎯 À toi de jouer.";
+            statusEl.classList.add("my-turn");
+        } else {
+            const label = state.mode === "solo" ? "L'ordinateur réfléchit..." : `En attente de ${state.opponentPseudo}...`;
+            statusEl.textContent = "⏳ " + label;
+            statusEl.classList.remove("my-turn");
+        }
+    }
+
+    // ---------- Interaction ----------
+    function handleSquareClick(r, c) {
+        if (state.over) return;
+        if (state.currentColor !== state.myColor) return; // pas mon tour
+
+        const piece = state.board[r][c];
+
+        // Cas 1 : on clique sur une destination déjà en surbrillance -> jouer le coup
+        const destMatch = state.destinations.find((d) => d.to[0] === r && d.to[1] === c);
+        if (state.selected && destMatch) {
+            playStep(state.selected, destMatch);
+            return;
+        }
+
+        // Cas 2 : si on doit continuer une rafle avec la même pièce, interdit de sélectionner autre chose
+        if (state.turnSteps.length > 0 && state.selected) {
+            return;
+        }
+
+        // Cas 3 : sélectionner une pièce jouable
+        if (!piece || piece.color !== state.myColor) {
+            state.selected = null;
+            state.destinations = [];
+            renderBoard();
+            return;
+        }
+        const mustCapture = Engine.colorHasCapture(state.board, state.myColor);
+        const caps = Engine.pieceCaptures(state.board, r, c);
+        if (mustCapture && caps.length === 0) {
+            // cette pièce n'a pas de prise alors qu'une prise existe ailleurs : non sélectionnable
+            return;
+        }
+        state.selected = [r, c];
+        state.destinations = mustCapture ? caps : Engine.pieceSimpleMoves(state.board, r, c);
+        renderBoard();
+    }
+
+    function playStep(from, dest) {
+        Engine.applyStep(state.board, from, dest.to, dest.captured || null);
+        state.turnFrom = state.turnFrom || from;
+        state.turnSteps.push({ to: dest.to, captured: dest.captured || null });
+
+        // Rafle : vérifier si la même pièce doit continuer
+        if (dest.captured) {
+            const further = Engine.pieceCaptures(state.board, dest.to[0], dest.to[1]);
+            if (further.length > 0) {
+                state.selected = dest.to;
+                state.destinations = further;
+                renderBoard();
+                return;
+            }
+        }
+        finishTurn();
+    }
+
+    function finishTurn() {
+        const finishedColor = state.currentColor;
+        const opponentColor = finishedColor === "w" ? "b" : "w";
+        state.selected = null;
+        state.destinations = [];
+
+        // En multijoueur, on transmet le tour complet à l'adversaire
+        if (state.mode === "multi") {
+            socket.emit("checkers_move", {
+                code: ROOM_CODE,
+                match_id: state.matchId,
+                from: state.turnFrom,
+                steps: state.turnSteps,
+            });
+        }
+        state.turnFrom = null;
+        state.turnSteps = [];
+
+        const winner = Engine.checkGameOver(state.board, opponentColor);
+        if (winner) {
+            endGame(winner);
+            return;
+        }
+        state.currentColor = opponentColor;
+        renderBoard();
+        updateStatus();
+
+        if (state.mode === "solo" && state.currentColor !== state.myColor) {
+            setTimeout(playAiTurn, 600);
+        }
+    }
+
+    function playAiTurn() {
+        const aiColor = state.currentColor;
+        const turn = Engine.aiChooseTurn(state.board, aiColor, 3);
+        if (!turn) {
+            endGame(aiColor === "w" ? "b" : "w");
+            return;
+        }
+        state.board = turn.endBoard;
+        const opponentColor = aiColor === "w" ? "b" : "w";
+        const winner = Engine.checkGameOver(state.board, opponentColor);
+        renderBoard();
+        if (winner) {
+            endGame(winner);
+            return;
+        }
+        state.currentColor = opponentColor;
+        renderBoard();
+        updateStatus();
+    }
+
+    function endGame(winnerColor) {
+        state.over = true;
+        const iWon = winnerColor === state.myColor;
+        statusEl.textContent = iWon ? "🏆 Tu as gagné !" : "😔 Partie perdue.";
+        statusEl.classList.remove("my-turn");
+    }
+
+    // ---------- Boutons de contrôle ----------
+    newGameBtn.addEventListener("click", () => {
+        if (state && state.mode === "multi" && !state.over) {
+            socket.emit("checkers_resign", { code: ROOM_CODE, match_id: state.matchId });
+        }
+        showMenu();
+    });
+
+    resignBtn.addEventListener("click", () => {
+        if (!state || state.over) return;
+        if (state.mode === "multi") {
+            socket.emit("checkers_resign", { code: ROOM_CODE, match_id: state.matchId });
+        }
+        endGame(state.myColor === "w" ? "b" : "w");
+    });
+
+    // ---------- Événements Socket.IO (multijoueur) ----------
+    socket.on("presence_update", (data) => {
+        otherPlayers = data.players.map((p) => p.pseudo);
+        if (invitePanel.style.display === "block") renderInviteList();
+        // Si l'adversaire courant a quitté le salon en pleine partie
+        if (state && state.mode === "multi" && !state.over && state.opponentPseudo) {
+            if (!otherPlayers.includes(state.opponentPseudo)) {
+                state.over = true;
+                statusEl.textContent = `⚠️ ${state.opponentPseudo} a quitté le salon.`;
+                statusEl.classList.remove("my-turn");
+            }
+        }
+    });
+
+    socket.on("checkers_invite_received", (data) => {
+        inviteBanner.style.display = "block";
+        inviteBanner.innerHTML = `
+            <p>${escapeHtml(data.from_pseudo)} t'invite à une partie de dames !</p>
+            <div class="camera-controls">
+                <button id="checkers-accept-btn" class="btn-primary">Accepter</button>
+                <button id="checkers-decline-btn" class="btn-secondary">Refuser</button>
+            </div>
+        `;
+        document.getElementById("checkers-accept-btn").addEventListener("click", () => {
+            socket.emit("checkers_accept", { code: ROOM_CODE, from_pseudo: data.from_pseudo });
+            inviteBanner.style.display = "none";
+        });
+        document.getElementById("checkers-decline-btn").addEventListener("click", () => {
+            socket.emit("checkers_decline", { code: ROOM_CODE, from_pseudo: data.from_pseudo });
+            inviteBanner.style.display = "none";
+        });
+    });
+
+    socket.on("checkers_invite_declined", (data) => {
+        alert(`${data.pseudo} a refusé l'invitation.`);
+    });
+
+    socket.on("checkers_game_start", (data) => {
+        // data: { match_id, players: {pseudo: color}, starting_color }
+        const myColor = data.players[myPseudo];
+        if (!myColor) return; // ce message ne me concerne pas
+        const opponentPseudo = Object.keys(data.players).find((p) => p !== myPseudo);
+        startMultiGame(data.match_id, myColor, opponentPseudo, data.starting_color);
+    });
+
+    socket.on("checkers_move_made", (data) => {
+        if (!state || state.mode !== "multi" || data.match_id !== state.matchId) return;
+        if (data.pseudo === myPseudo) return; // c'est mon propre coup qui revient
+        let cur = data.from;
+        data.steps.forEach((step) => {
+            Engine.applyStep(state.board, cur, step.to, step.captured || null);
+            cur = step.to;
+        });
+        const opponentColor = state.currentColor === "w" ? "b" : "w";
+        const winner = Engine.checkGameOver(state.board, opponentColor);
+        state.currentColor = opponentColor;
+        renderBoard();
+        if (winner) {
+            endGame(winner);
+        } else {
+            updateStatus();
+        }
+    });
+
+    socket.on("checkers_resign_notice", (data) => {
+        if (!state || state.mode !== "multi" || data.match_id !== state.matchId) return;
+        state.over = true;
+        statusEl.textContent = `🏆 ${data.pseudo} a abandonné — tu as gagné !`;
+        statusEl.classList.remove("my-turn");
+    });
+
+    // ---------- Initialisation ----------
+    showMenu();
+})();
