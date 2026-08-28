@@ -119,7 +119,34 @@
         </div>
     </section>
 
-    <!-- Onglet 4 : Présence -->
+    <!-- Onglet 4 : Dames -->
+    <section id="tab-checkers" class="tab-panel">
+        <p class="tab-description">Dames françaises (10x10), prise obligatoire. Joue seul contre l'ordinateur ou défie un autre participant du salon.</p>
+
+        <div id="checkers-mode-menu" class="checkers-menu">
+            <button id="checkers-solo-btn" class="btn-primary">🤖 Jouer contre l'ordinateur</button>
+            <button id="checkers-multi-btn" class="btn-secondary">👥 Défier un participant</button>
+        </div>
+
+        <div id="checkers-invite-panel" class="checkers-invite-panel" style="display:none;">
+            <h3>Qui veux-tu défier ?</h3>
+            <div id="checkers-invite-list"></div>
+            <button id="checkers-back-btn" class="btn-secondary">◀ Retour</button>
+        </div>
+
+        <div id="checkers-invite-banner" class="round-zone" style="display:none;"></div>
+
+        <div id="checkers-game-area" class="checkers-game-area" style="display:none;">
+            <p id="checkers-status" class="turn-indicator"></p>
+            <div id="checkers-board" class="checkers-board"></div>
+            <div class="checkers-controls">
+                <button id="checkers-resign-btn" class="btn-secondary">🏳️ Abandonner</button>
+                <button id="checkers-new-game-btn" class="btn-secondary">◀ Nouvelle partie</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Onglet 5 : Présence -->
     <section id="tab-presence" class="tab-panel">
         <div class="my-profile-box">
             <div class="my-avatar-preview" id="my-avatar-preview">?</div>
@@ -136,7 +163,7 @@
         <ul id="presence-list" class="presence-list"></ul>
     </section>
 
-    <!-- Onglet 5 : Invitation -->
+    <!-- Onglet 6 : Invitation -->
     <section id="tab-invite" class="tab-panel">
         <h3>Inviter des participants</h3>
         <div class="invite-box">
@@ -174,6 +201,10 @@
             <span class="nav-label">Discussion</span>
             <span class="nav-badge" id="badge-chat" style="display:none;">0</span>
         </button>
+        <button class="nav-btn" data-tab="tab-checkers">
+            <span class="nav-icon">⛃</span>
+            <span class="nav-label">Dames</span>
+        </button>
         <button class="nav-btn" data-tab="tab-presence">
             <span class="nav-icon">🟢</span>
             <span class="nav-label">En ligne</span>
@@ -206,6 +237,8 @@
 const ROOM_CODE = "{{ code }}";
 </script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script src="{{ url_for('static', filename='js/checkers.js') }}"></script>
+<script src="{{ url_for('static', filename='js/checkers-ui.js') }}"></script>
 <script src="{{ url_for('static', filename='js/pwa.js') }}"></script>
 </body>
 </html>
