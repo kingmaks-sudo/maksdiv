@@ -996,10 +996,19 @@ body {
     max-width: 420px;
     aspect-ratio: 1 / 1;
     margin: 12px auto 20px;
-    border: 10px solid #4a2f15;
-    border-radius: 4px;
+    border: 16px solid transparent;
+    border-radius: 6px;
+    background:
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.008 0.35' numOctaves='5' seed='23' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
+        linear-gradient(160deg, #7a4a26, #4a2a12 60%, #3a2010);
+    background-blend-mode: overlay;
+    background-clip: border-box;
+    box-shadow:
+        0 16px 36px rgba(0, 0, 0, 0.55),
+        inset 0 0 0 2px #2a1608,
+        inset 0 2px 2px rgba(255, 255, 255, 0.12),
+        inset 0 -3px 6px rgba(0, 0, 0, 0.5);
     overflow: hidden;
-    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), inset 0 0 0 2px #3a2410;
 }
 
 .checkers-square {
@@ -1007,14 +1016,23 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    box-shadow:
+        inset 0 0 0 1px rgba(0, 0, 0, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .checkers-square.light {
-    background: linear-gradient(135deg, #f0dcae, #e3c896);
+    background:
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.01 0.4' numOctaves='4' seed='5' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.35 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
+        linear-gradient(135deg, #f2e0b4, #e3c896);
+    background-blend-mode: overlay;
 }
 
 .checkers-square.dark {
-    background: linear-gradient(135deg, #8b5a2b, #6b3a1f);
+    background:
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.01 0.4' numOctaves='4' seed='9' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.4 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
+        linear-gradient(135deg, #96602f, #6b3a1f);
+    background-blend-mode: overlay;
     cursor: pointer;
 }
 
@@ -1037,7 +1055,11 @@ body {
     height: 80%;
     border-radius: 50%;
     position: relative;
-    box-shadow: 0 4px 7px rgba(0, 0, 0, 0.55), inset 0 -4px 8px rgba(0, 0, 0, 0.3), inset 0 3px 4px rgba(255, 255, 255, 0.15);
+    box-shadow:
+        3px 5px 4px rgba(0, 0, 0, 0.45),
+        0 7px 10px rgba(0, 0, 0, 0.35),
+        inset 0 -5px 8px rgba(0, 0, 0, 0.3),
+        inset 0 3px 4px rgba(255, 255, 255, 0.2);
 }
 
 .checkers-piece.piece-w {
@@ -1076,13 +1098,15 @@ body {
 
 /* Pièces qu'on peut jouer maintenant (avant sélection) : anneau doré pulsant */
 .checkers-piece.playable {
-    box-shadow: 0 0 0 3px #ffd23f, 0 0 12px 3px rgba(255, 210, 63, 0.7), 0 4px 7px rgba(0, 0, 0, 0.55);
+    box-shadow:
+        0 0 0 3px #ffd23f, 0 0 12px 3px rgba(255, 210, 63, 0.7),
+        3px 5px 4px rgba(0, 0, 0, 0.45), 0 7px 10px rgba(0, 0, 0, 0.35);
     animation: checkers-playable-pulse 1.4s ease-in-out infinite;
 }
 
 @keyframes checkers-playable-pulse {
-    0%, 100% { box-shadow: 0 0 0 3px #ffd23f, 0 0 10px 2px rgba(255, 210, 63, 0.55), 0 4px 7px rgba(0,0,0,0.55); }
-    50% { box-shadow: 0 0 0 3px #ffe27a, 0 0 18px 6px rgba(255, 210, 63, 0.9), 0 4px 7px rgba(0,0,0,0.55); }
+    0%, 100% { box-shadow: 0 0 0 3px #ffd23f, 0 0 10px 2px rgba(255, 210, 63, 0.55), 3px 5px 4px rgba(0,0,0,0.45); }
+    50% { box-shadow: 0 0 0 3px #ffe27a, 0 0 18px 6px rgba(255, 210, 63, 0.9), 3px 5px 4px rgba(0,0,0,0.45); }
 }
 
 .checkers-controls {
