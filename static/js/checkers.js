@@ -144,16 +144,16 @@
         const mustCapture = colorHasCapture(board, color);
         const turns = [];
 
-        function dfsCapture(curBoard, r, c, path, capturedSoFar) {
+        function dfsCapture(curBoard, r, c, startPos, stepsSoFar, capturedSoFar) {
             const caps = pieceCaptures(curBoard, r, c);
             if (caps.length === 0) {
-                turns.push({ from: path[0], steps: path.slice(1), endBoard: curBoard, capturedCount: capturedSoFar });
+                turns.push({ from: startPos, steps: stepsSoFar, endBoard: curBoard, capturedCount: capturedSoFar });
                 return;
             }
             for (const cap of caps) {
                 const nextBoard = cloneBoard(curBoard);
                 applyStep(nextBoard, [r, c], cap.to, cap.captured);
-                dfsCapture(nextBoard, cap.to[0], cap.to[1], [...path, cap.to], capturedSoFar + 1);
+                dfsCapture(nextBoard, cap.to[0], cap.to[1], startPos, [...stepsSoFar, { to: cap.to, captured: cap.captured }], capturedSoFar + 1);
             }
         }
 
@@ -163,13 +163,13 @@
                 if (!p || p.color !== color) continue;
                 if (mustCapture) {
                     if (pieceCaptures(board, r, c).length > 0) {
-                        dfsCapture(board, r, c, [[r, c]], 0);
+                        dfsCapture(board, r, c, [r, c], [], 0);
                     }
                 } else {
                     for (const mv of pieceSimpleMoves(board, r, c)) {
                         const nextBoard = cloneBoard(board);
                         applyStep(nextBoard, [r, c], mv.to, null);
-                        turns.push({ from: [r, c], steps: [mv.to], endBoard: nextBoard, capturedCount: 0 });
+                        turns.push({ from: [r, c], steps: [{ to: mv.to, captured: null }], endBoard: nextBoard, capturedCount: 0 });
                     }
                 }
             }
