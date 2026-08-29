@@ -46,6 +46,9 @@
         return flip ? [SIZE - 1 - vr, SIZE - 1 - vc] : [vr, vc];
     }
 
+    const tabPanel = document.getElementById("tab-checkers");
+    const descriptionEl = tabPanel ? tabPanel.querySelector(".tab-description") : null;
+
     // ---------- Menu ----------
     function showMenu() {
         state = null;
@@ -53,6 +56,8 @@
         invitePanel.style.display = "none";
         inviteBanner.style.display = "none";
         gameArea.style.display = "none";
+        if (tabPanel) tabPanel.classList.remove("checkers-fullscreen");
+        if (descriptionEl) descriptionEl.style.display = "block";
     }
 
     function showInvitePanel() {
@@ -125,6 +130,8 @@
         invitePanel.style.display = "none";
         inviteBanner.style.display = "none";
         gameArea.style.display = "block";
+        if (tabPanel) tabPanel.classList.add("checkers-fullscreen");
+        if (descriptionEl) descriptionEl.style.display = "none";
         renderBoard();
         updateStatus();
     }
