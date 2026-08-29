@@ -8,6 +8,48 @@
     const Engine = window.CheckersEngine;
     const SIZE = Engine.SIZE;
 
+    // ---------- Sons (générés en direct, aucun fichier audio requis) ----------
+    let audioCtx = null;
+    function ensureAudio() {
+        if (!audioCtx) {
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (e) {
+                audioCtx = null;
+            }
+        } else if (audioCtx.state === "suspended") {
+            audioCtx.resume();
+        }
+        return audioCtx;
+    }
+    function playTone(freq, duration, type, volume, delay) {
+        const ctx = ensureAudio();
+        if (!ctx) return;
+        const t0 = ctx.currentTime + (delay || 0);
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type || "sine";
+        osc.frequency.setValueAtTime(freq, t0);
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(volume || 0.15, t0 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + duration + 0.03);
+    }
+    function sfxSelect() { playTone(720, 0.06, "square", 0.10); }
+    function sfxMove() { playTone(320, 0.13, "sine", 0.16); }
+    function sfxCapture() {
+        playTone(480, 0.09, "triangle", 0.18);
+        playTone(230, 0.15, "triangle", 0.16, 0.09);
+    }
+    function sfxKing() {
+        playTone(520, 0.1, "sine", 0.16);
+        playTone(660, 0.1, "sine", 0.16, 0.1);
+        playTone(880, 0.18, "sine", 0.18, 0.2);
+    }
+
     // ---------- Éléments DOM (voir templates/room.html) ----------
     const menuEl = document.getElementById("checkers-mode-menu");
     const soloBtn = document.getElementById("checkers-solo-btn");
@@ -104,6 +146,7 @@
             turnFrom: null,
             turnSteps: [],
             over: false,
+            animating: false,
         };
         openGameArea();
     }
@@ -121,6 +164,7 @@
             turnFrom: null,
             turnSteps: [],
             over: false,
+            animating: false,
         };
         openGameArea();
     }
@@ -205,9 +249,58 @@
         }
     }
 
+    function findSquareEl(r, c) {
+        return boardEl.querySelector('.checkers-square[data-r="' + r + '"][data-c="' + c + '"]');
+    }
+
+    // Anime visuellement UN saut (glissement + fondu de la pièce mangée), joue le son
+    // correspondant, puis applique réellement le coup au modèle et rafraîchit le plateau.
+    function animateAndApply(from, dest, onDone) {
+        const fromSq = findSquareEl(from[0], from[1]);
+        const toSq = findSquareEl(dest.to[0], dest.to[1]);
+        const pieceEl = fromSq ? fromSq.querySelector(".checkers-piece") : null;
+        const capturedSq = dest.captured ? findSquareEl(dest.captured[0], dest.captured[1]) : null;
+        const capturedPieceEl = capturedSq ? capturedSq.querySelector(".checkers-piece") : null;
+
+        if (pieceEl && fromSq && toSq) {
+            const fromRect = fromSq.getBoundingClientRect();
+            const toRect = toSq.getBoundingClientRect();
+            const dx = toRect.left - fromRect.left;
+            const dy = toRect.top - fromRect.top;
+            pieceEl.style.zIndex = "5";
+            pieceEl.style.transition = "transform 0.28s ease";
+            requestAnimationFrame(() => {
+                pieceEl.style.transform = "translate(" + dx + "px, " + dy + "px)";
+            });
+        }
+        if (capturedPieceEl) {
+            capturedPieceEl.style.transition = "transform 0.22s ease, opacity 0.22s ease";
+            capturedPieceEl.style.transform = "scale(0.3)";
+            capturedPieceEl.style.opacity = "0";
+        }
+
+        if (dest.captured) sfxCapture(); else sfxMove();
+
+        setTimeout(() => {
+            const promoted = Engine.applyStep(state.board, from, dest.to, dest.captured || null);
+            if (promoted) sfxKing();
+            renderBoard();
+            onDone(promoted);
+        }, 300);
+    }
+
+    // Enchaîne l'animation de plusieurs sauts à la suite (rafle, ou tour adverse reçu)
+    function animateStepsSequentially(fromPos, steps, index, onAllDone) {
+        if (index >= steps.length) { onAllDone(); return; }
+        const dest = steps[index];
+        animateAndApply(fromPos, dest, () => {
+            animateStepsSequentially(dest.to, steps, index + 1, onAllDone);
+        });
+    }
+
     // ---------- Interaction ----------
     function handleSquareClick(r, c) {
-        if (state.over) return;
+        if (state.over || state.animating) return;
         if (state.currentColor !== state.myColor) return; // pas mon tour
 
         const piece = state.board[r][c];
@@ -239,25 +332,30 @@
         }
         state.selected = [r, c];
         state.destinations = mustCapture ? caps : Engine.pieceSimpleMoves(state.board, r, c);
+        sfxSelect();
         renderBoard();
     }
 
     function playStep(from, dest) {
-        Engine.applyStep(state.board, from, dest.to, dest.captured || null);
-        state.turnFrom = state.turnFrom || from;
-        state.turnSteps.push({ to: dest.to, captured: dest.captured || null });
+        state.animating = true;
+        state.selected = null;
+        state.destinations = [];
+        animateAndApply(from, dest, () => {
+            state.animating = false;
+            state.turnFrom = state.turnFrom || from;
+            state.turnSteps.push({ to: dest.to, captured: dest.captured || null });
 
-        // Rafle : vérifier si la même pièce doit continuer
-        if (dest.captured) {
-            const further = Engine.pieceCaptures(state.board, dest.to[0], dest.to[1]);
-            if (further.length > 0) {
-                state.selected = dest.to;
-                state.destinations = further;
-                renderBoard();
-                return;
+            if (dest.captured) {
+                const further = Engine.pieceCaptures(state.board, dest.to[0], dest.to[1]);
+                if (further.length > 0) {
+                    state.selected = dest.to;
+                    state.destinations = further;
+                    renderBoard();
+                    return;
+                }
             }
-        }
-        finishTurn();
+            finishTurn();
+        });
     }
 
     function finishTurn() {
@@ -299,17 +397,20 @@
             endGame(aiColor === "w" ? "b" : "w");
             return;
         }
-        state.board = turn.endBoard;
-        const opponentColor = aiColor === "w" ? "b" : "w";
-        const winner = Engine.checkGameOver(state.board, opponentColor);
-        renderBoard();
-        if (winner) {
-            endGame(winner);
-            return;
-        }
-        state.currentColor = opponentColor;
-        renderBoard();
-        updateStatus();
+        state.animating = true;
+        animateStepsSequentially(turn.from, turn.steps, 0, () => {
+            state.animating = false;
+            const opponentColor = aiColor === "w" ? "b" : "w";
+            const winner = Engine.checkGameOver(state.board, opponentColor);
+            if (winner) {
+                renderBoard();
+                endGame(winner);
+                return;
+            }
+            state.currentColor = opponentColor;
+            renderBoard();
+            updateStatus();
+        });
     }
 
     function endGame(winnerColor) {
@@ -383,20 +484,19 @@
     socket.on("checkers_move_made", (data) => {
         if (!state || state.mode !== "multi" || data.match_id !== state.matchId) return;
         if (data.pseudo === myPseudo) return; // c'est mon propre coup qui revient
-        let cur = data.from;
-        data.steps.forEach((step) => {
-            Engine.applyStep(state.board, cur, step.to, step.captured || null);
-            cur = step.to;
+        state.animating = true;
+        animateStepsSequentially(data.from, data.steps, 0, () => {
+            state.animating = false;
+            const opponentColor = state.currentColor === "w" ? "b" : "w";
+            const winner = Engine.checkGameOver(state.board, opponentColor);
+            state.currentColor = opponentColor;
+            renderBoard();
+            if (winner) {
+                endGame(winner);
+            } else {
+                updateStatus();
+            }
         });
-        const opponentColor = state.currentColor === "w" ? "b" : "w";
-        const winner = Engine.checkGameOver(state.board, opponentColor);
-        state.currentColor = opponentColor;
-        renderBoard();
-        if (winner) {
-            endGame(winner);
-        } else {
-            updateStatus();
-        }
     });
 
     socket.on("checkers_resign_notice", (data) => {
