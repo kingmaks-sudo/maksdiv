@@ -129,10 +129,31 @@
         updateStatus();
     }
 
+    // ---------- Quelles pièces sont jouables maintenant (avant sélection) ----------
+    function getSelectablePositions(board, color) {
+        const mustCapture = Engine.colorHasCapture(board, color);
+        const positions = [];
+        for (let r = 0; r < SIZE; r++) {
+            for (let c = 0; c < SIZE; c++) {
+                const p = board[r][c];
+                if (!p || p.color !== color) continue;
+                const moves = mustCapture ? Engine.pieceCaptures(board, r, c) : Engine.pieceSimpleMoves(board, r, c);
+                if (moves.length > 0) positions.push([r, c]);
+            }
+        }
+        return positions;
+    }
+
     // ---------- Rendu du plateau ----------
     function renderBoard() {
         boardEl.innerHTML = "";
         const flip = flipFor(state.myColor);
+        // Surbrillance dorée : uniquement quand c'est mon tour et qu'aucune pièce
+        // n'est encore sélectionnée (dès qu'une capture est en cours, on la cache
+        // pour ne pas distraire pendant une rafle forcée).
+        const showPlayable = state.currentColor === state.myColor && !state.selected;
+        const selectable = showPlayable ? getSelectablePositions(state.board, state.myColor) : [];
+
         for (let vr = 0; vr < SIZE; vr++) {
             for (let vc = 0; vc < SIZE; vc++) {
                 const [lr, lc] = visualToLogical(vr, vc, flip);
@@ -153,6 +174,9 @@
                         const pieceEl = document.createElement("div");
                         pieceEl.className = "checkers-piece " + (piece.color === "w" ? "piece-w" : "piece-b");
                         if (piece.king) pieceEl.classList.add("king");
+                        if (selectable.some((p) => p[0] === lr && p[1] === lc)) {
+                            pieceEl.classList.add("playable");
+                        }
                         sq.appendChild(pieceEl);
                     }
                     sq.addEventListener("click", () => handleSquareClick(lr, lc));
