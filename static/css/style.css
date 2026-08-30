@@ -996,6 +996,7 @@ body {
 
 .checkers-game-area {
     text-align: center;
+    position: relative;
 }
 
 .checkers-board {
@@ -1135,3 +1136,36 @@ body {
 }
 
 .checkers-controls button { flex: 1; margin-top: 0; }
+
+.checkers-score-line {
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin: -8px 0 14px;
+}
+
+.checkers-score-line strong {
+    color: var(--text);
+}
+
+.checkers-confetti-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 20;
+}
+
+.checkers-confetti-piece {
+    position: absolute;
+    top: -12px;
+    width: 9px;
+    height: 14px;
+    opacity: 0.95;
+    animation: checkers-confetti-fall linear forwards;
+}
+
+@keyframes checkers-confetti-fall {
+    0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(420px) rotate(540deg); opacity: 0; }
+}
