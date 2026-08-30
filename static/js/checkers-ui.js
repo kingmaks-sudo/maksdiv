@@ -54,6 +54,8 @@
     const menuEl = document.getElementById("checkers-mode-menu");
     const soloBtn = document.getElementById("checkers-solo-btn");
     const multiBtn = document.getElementById("checkers-multi-btn");
+    const difficultyPanel = document.getElementById("checkers-difficulty-panel");
+    const difficultyBackBtn = document.getElementById("checkers-difficulty-back-btn");
     const invitePanel = document.getElementById("checkers-invite-panel");
     const inviteList = document.getElementById("checkers-invite-list");
     const inviteBanner = document.getElementById("checkers-invite-banner");
@@ -63,6 +65,13 @@
     const newGameBtn = document.getElementById("checkers-new-game-btn");
     const resignBtn = document.getElementById("checkers-resign-btn");
     const backBtn = document.getElementById("checkers-back-btn");
+
+    const DIFFICULTIES = {
+        beginner: { label: "Débutant", depth: 1, randomness: 0.5 },
+        hard: { label: "Difficile", depth: 3, randomness: 0 },
+        expert: { label: "Expert", depth: 5, randomness: 0 },
+        master: { label: "Maître", depth: 7, randomness: 0 },
+    };
 
     // ---------- État de la partie en cours (local) ----------
     let state = null;
@@ -95,11 +104,17 @@
     function showMenu() {
         state = null;
         menuEl.style.display = "block";
+        difficultyPanel.style.display = "none";
         invitePanel.style.display = "none";
         inviteBanner.style.display = "none";
         gameArea.style.display = "none";
         if (tabPanel) tabPanel.classList.remove("checkers-fullscreen");
         if (descriptionEl) descriptionEl.style.display = "block";
+    }
+
+    function showDifficultyPanel() {
+        menuEl.style.display = "none";
+        difficultyPanel.style.display = "block";
     }
 
     function showInvitePanel() {
@@ -128,19 +143,27 @@
         });
     }
 
-    soloBtn.addEventListener("click", () => startSoloGame());
+    soloBtn.addEventListener("click", () => showDifficultyPanel());
     multiBtn.addEventListener("click", () => showInvitePanel());
     backBtn.addEventListener("click", () => showMenu());
+    difficultyBackBtn.addEventListener("click", () => showMenu());
+
+    Object.keys(DIFFICULTIES).forEach((key) => {
+        const btn = document.getElementById("checkers-diff-" + key);
+        if (btn) btn.addEventListener("click", () => startSoloGame(DIFFICULTIES[key]));
+    });
 
     // ---------- Démarrage d'une partie ----------
-    function startSoloGame() {
+    function startSoloGame(difficulty) {
         state = {
             mode: "solo",
             board: Engine.createInitialBoard(),
             currentColor: "w",
             myColor: "w",
             matchId: null,
-            opponentPseudo: "Ordinateur",
+            opponentPseudo: "Ordinateur (" + difficulty.label + ")",
+            aiDepth: difficulty.depth,
+            aiRandomness: difficulty.randomness,
             selected: null,
             destinations: [],
             turnFrom: null,
@@ -358,6 +381,31 @@
         });
     }
 
+    // Détermine à qui revient réellement la main : si le camp candidat a des
+    // pions mais ne peut pas jouer, son tour est passé (au lieu de perdre).
+    // La partie ne se termine que par élimination totale d'un camp, ou par
+    // un blocage total des deux camps (match nul, situation extrêmement rare).
+    function resolveNextTurn(candidateColor) {
+        let current = candidateColor;
+        let guard = 0;
+        while (guard < 40) {
+            const winner = Engine.checkGameOver(state.board, current);
+            if (winner) return { type: "winner", color: winner };
+            if (Engine.hasAnyMove(state.board, current)) {
+                return { type: "play", color: current };
+            }
+            current = current === "w" ? "b" : "w";
+            guard++;
+        }
+        return { type: "draw" };
+    }
+
+    function endGameDraw() {
+        state.over = true;
+        statusEl.textContent = "🤝 Match nul — plus aucun coup possible pour personne.";
+        statusEl.classList.remove("my-turn");
+    }
+
     function finishTurn() {
         const finishedColor = state.currentColor;
         const opponentColor = finishedColor === "w" ? "b" : "w";
@@ -376,12 +424,10 @@
         state.turnFrom = null;
         state.turnSteps = [];
 
-        const winner = Engine.checkGameOver(state.board, opponentColor);
-        if (winner) {
-            endGame(winner);
-            return;
-        }
-        state.currentColor = opponentColor;
+        const resolution = resolveNextTurn(opponentColor);
+        if (resolution.type === "winner") { endGame(resolution.color); return; }
+        if (resolution.type === "draw") { endGameDraw(); return; }
+        state.currentColor = resolution.color;
         renderBoard();
         updateStatus();
 
@@ -392,7 +438,7 @@
 
     function playAiTurn() {
         const aiColor = state.currentColor;
-        const turn = Engine.aiChooseTurn(state.board, aiColor, 3);
+        const turn = Engine.aiChooseTurn(state.board, aiColor, state.aiDepth || 3, state.aiRandomness || 0);
         if (!turn) {
             endGame(aiColor === "w" ? "b" : "w");
             return;
@@ -401,13 +447,18 @@
         animateStepsSequentially(turn.from, turn.steps, 0, () => {
             state.animating = false;
             const opponentColor = aiColor === "w" ? "b" : "w";
-            const winner = Engine.checkGameOver(state.board, opponentColor);
-            if (winner) {
+            const resolution = resolveNextTurn(opponentColor);
+            if (resolution.type === "winner") {
                 renderBoard();
-                endGame(winner);
+                endGame(resolution.color);
                 return;
             }
-            state.currentColor = opponentColor;
+            if (resolution.type === "draw") {
+                renderBoard();
+                endGameDraw();
+                return;
+            }
+            state.currentColor = resolution.color;
             renderBoard();
             updateStatus();
         });
@@ -488,14 +539,20 @@
         animateStepsSequentially(data.from, data.steps, 0, () => {
             state.animating = false;
             const opponentColor = state.currentColor === "w" ? "b" : "w";
-            const winner = Engine.checkGameOver(state.board, opponentColor);
-            state.currentColor = opponentColor;
-            renderBoard();
-            if (winner) {
-                endGame(winner);
-            } else {
-                updateStatus();
+            const resolution = resolveNextTurn(opponentColor);
+            if (resolution.type === "winner") {
+                renderBoard();
+                endGame(resolution.color);
+                return;
             }
+            if (resolution.type === "draw") {
+                renderBoard();
+                endGameDraw();
+                return;
+            }
+            state.currentColor = resolution.color;
+            renderBoard();
+            updateStatus();
         });
     });
 
