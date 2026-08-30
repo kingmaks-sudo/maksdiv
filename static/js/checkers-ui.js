@@ -49,6 +49,34 @@
         playTone(660, 0.1, "sine", 0.16, 0.1);
         playTone(880, 0.18, "sine", 0.18, 0.2);
     }
+    function sfxVictory() {
+        playTone(523, 0.15, "sine", 0.18);
+        playTone(659, 0.15, "sine", 0.18, 0.13);
+        playTone(784, 0.15, "sine", 0.18, 0.26);
+        playTone(1046, 0.28, "sine", 0.2, 0.39);
+    }
+    function sfxDefeat() {
+        playTone(392, 0.18, "sine", 0.16);
+        playTone(311, 0.22, "sine", 0.16, 0.16);
+        playTone(220, 0.3, "sine", 0.16, 0.32);
+    }
+
+    const CONFETTI_COLORS = ["#d946a8", "#6d5bff", "#ffd23f", "#3ddc84", "#ff5c73"];
+    function launchConfetti() {
+        if (!confettiLayer) return;
+        confettiLayer.innerHTML = "";
+        const count = 36;
+        for (let i = 0; i < count; i++) {
+            const piece = document.createElement("div");
+            piece.className = "checkers-confetti-piece";
+            piece.style.left = Math.random() * 100 + "%";
+            piece.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+            piece.style.animationDuration = (1.4 + Math.random() * 1.1) + "s";
+            piece.style.animationDelay = (Math.random() * 0.4) + "s";
+            confettiLayer.appendChild(piece);
+        }
+        setTimeout(() => { confettiLayer.innerHTML = ""; }, 3000);
+    }
 
     // ---------- Éléments DOM (voir templates/room.html) ----------
     const menuEl = document.getElementById("checkers-mode-menu");
@@ -64,7 +92,10 @@
     const statusEl = document.getElementById("checkers-status");
     const newGameBtn = document.getElementById("checkers-new-game-btn");
     const resignBtn = document.getElementById("checkers-resign-btn");
+    const rematchBtn = document.getElementById("checkers-rematch-btn");
     const backBtn = document.getElementById("checkers-back-btn");
+    const scoreLine = document.getElementById("checkers-score-line");
+    const confettiLayer = document.getElementById("checkers-confetti-layer");
 
     const DIFFICULTIES = {
         beginner: { label: "Débutant", depth: 1, randomness: 0.5 },
@@ -72,6 +103,28 @@
         expert: { label: "Expert", depth: 5, randomness: 0 },
         master: { label: "Maître", depth: 7, randomness: 0 },
     };
+
+    // ---------- Score personnel (persisté sur cet appareil) ----------
+    const SCORE_KEY = "maksdiv_checkers_score";
+    function loadScore() {
+        try {
+            const raw = localStorage.getItem(SCORE_KEY);
+            if (raw) return JSON.parse(raw);
+        } catch (e) { /* ignore */ }
+        return { wins: 0, losses: 0, draws: 0 };
+    }
+    let score = loadScore();
+    function saveScore() {
+        try { localStorage.setItem(SCORE_KEY, JSON.stringify(score)); } catch (e) { /* ignore */ }
+    }
+    function renderScore() {
+        if (!scoreLine) return;
+        scoreLine.innerHTML =
+            "🏆 <strong>" + score.wins + "</strong> victoires · " +
+            "<strong>" + score.losses + "</strong> défaites · " +
+            "<strong>" + score.draws + "</strong> nuls";
+    }
+    renderScore();
 
     // ---------- État de la partie en cours (local) ----------
     let state = null;
@@ -164,6 +217,7 @@
             opponentPseudo: "Ordinateur (" + difficulty.label + ")",
             aiDepth: difficulty.depth,
             aiRandomness: difficulty.randomness,
+            difficulty: difficulty,
             selected: null,
             destinations: [],
             turnFrom: null,
@@ -200,6 +254,11 @@
         gameArea.style.display = "block";
         if (tabPanel) tabPanel.classList.add("checkers-fullscreen");
         if (descriptionEl) descriptionEl.style.display = "none";
+        resignBtn.style.display = "inline-block";
+        rematchBtn.style.display = "none";
+        rematchBtn.disabled = false;
+        rematchBtn.textContent = "🔁 Revanche";
+        if (confettiLayer) confettiLayer.innerHTML = "";
         renderBoard();
         updateStatus();
     }
@@ -405,6 +464,11 @@
         state.over = true;
         statusEl.textContent = "🤝 Match nul — plus aucun coup possible pour personne.";
         statusEl.classList.remove("my-turn");
+        score.draws += 1;
+        saveScore();
+        renderScore();
+        resignBtn.style.display = "none";
+        rematchBtn.style.display = "inline-block";
     }
 
     function finishTurn() {
@@ -470,7 +534,34 @@
         const iWon = winnerColor === state.myColor;
         statusEl.textContent = iWon ? "🏆 Tu as gagné !" : "😔 Partie perdue.";
         statusEl.classList.remove("my-turn");
+
+        if (iWon) {
+            score.wins += 1;
+            sfxVictory();
+            launchConfetti();
+        } else {
+            score.losses += 1;
+            sfxDefeat();
+        }
+        saveScore();
+        renderScore();
+
+        resignBtn.style.display = "none";
+        rematchBtn.style.display = "inline-block";
     }
+
+    rematchBtn.addEventListener("click", () => {
+        if (!state) return;
+        if (state.mode === "solo") {
+            startSoloGame(state.difficulty);
+        } else if (state.mode === "multi") {
+            const opponent = state.opponentPseudo;
+            statusEl.textContent = "⏳ En attente que " + opponent + " accepte la revanche...";
+            rematchBtn.disabled = true;
+            rematchBtn.textContent = "Revanche demandée...";
+            socket.emit("checkers_invite", { code: ROOM_CODE, to_pseudo: opponent });
+        }
+    });
 
     // ---------- Boutons de contrôle ----------
     newGameBtn.addEventListener("click", () => {
