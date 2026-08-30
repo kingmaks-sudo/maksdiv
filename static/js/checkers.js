@@ -187,13 +187,26 @@
         return { men, kings };
     }
 
+    function colorHasPieces(board, color) {
+        for (let r = 0; r < SIZE; r++) {
+            for (let c = 0; c < SIZE; c++) {
+                const p = board[r][c];
+                if (p && p.color === color) return true;
+            }
+        }
+        return false;
+    }
+
     function hasAnyMove(board, color) {
         return enumerateFullTurns(board, color).length > 0;
     }
 
+    // La partie ne se termine désormais QUE par élimination totale des pions
+    // d'un camp. Un camp temporairement bloqué (aucun coup possible) ne perd
+    // pas : son tour est simplement passé (voir resolveNextTurn côté interface).
     function checkGameOver(board, colorToPlay) {
-        if (!hasAnyMove(board, colorToPlay)) {
-            return colorToPlay === "w" ? "b" : "w"; // l'autre couleur gagne
+        if (!colorHasPieces(board, colorToPlay)) {
+            return colorToPlay === "w" ? "b" : "w";
         }
         return null;
     }
@@ -249,9 +262,15 @@
         }
     }
 
-    function aiChooseTurn(board, aiColor, depth) {
+    function aiChooseTurn(board, aiColor, depth, randomness) {
         const turns = enumerateFullTurns(board, aiColor);
         if (turns.length === 0) return null;
+
+        // Niveau "Débutant" : joue parfois un coup légal au hasard plutôt que le meilleur.
+        if (randomness && Math.random() < randomness) {
+            return turns[Math.floor(Math.random() * turns.length)];
+        }
+
         let best = null, bestScore = -Infinity;
         const opp = aiColor === "w" ? "b" : "w";
         for (const t of turns) {
@@ -271,6 +290,8 @@
         pieceCaptures,
         pieceSimpleMoves,
         colorHasCapture,
+        colorHasPieces,
+        hasAnyMove,
         applyStep,
         enumerateFullTurns,
         checkGameOver,
