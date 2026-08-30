@@ -122,6 +122,7 @@
     <!-- Onglet 4 : Dames -->
     <section id="tab-checkers" class="tab-panel">
         <p class="tab-description">Dames françaises (10x10), prise obligatoire. Joue seul contre l'ordinateur ou défie un autre participant du salon.</p>
+        <div id="checkers-score-line" class="checkers-score-line"></div>
 
         <div id="checkers-mode-menu" class="checkers-menu">
             <button id="checkers-solo-btn" class="btn-primary">🤖 Jouer contre l'ordinateur</button>
@@ -148,12 +149,15 @@
         <div id="checkers-game-area" class="checkers-game-area" style="display:none;">
             <p id="checkers-status" class="turn-indicator"></p>
             <div id="checkers-board" class="checkers-board"></div>
+            <div id="checkers-confetti-layer" class="checkers-confetti-layer"></div>
             <div class="checkers-controls">
                 <button id="checkers-resign-btn" class="btn-secondary">🏳️ Abandonner</button>
+                <button id="checkers-rematch-btn" class="btn-primary" style="display:none;">🔁 Revanche</button>
                 <button id="checkers-new-game-btn" class="btn-secondary">◀ Nouvelle partie</button>
             </div>
         </div>
     </section>
+
 
     <!-- Onglet 5 : Présence -->
     <section id="tab-presence" class="tab-panel">
