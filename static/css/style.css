@@ -1006,18 +1006,9 @@ body {
     max-width: 640px;
     aspect-ratio: 1 / 1;
     margin: 8px auto 16px;
-    border: 10px solid transparent;
-    border-radius: 4px;
-    background:
-        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.008 0.35' numOctaves='5' seed='23' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
-        linear-gradient(160deg, #7a3420, #4a1f12 60%, #331509);
-    background-blend-mode: overlay;
-    background-clip: border-box;
-    box-shadow:
-        0 16px 36px rgba(0, 0, 0, 0.55),
-        inset 0 0 0 2px #2a1608,
-        inset 0 2px 2px rgba(255, 255, 255, 0.12),
-        inset 0 -3px 6px rgba(0, 0, 0, 0.5);
+    border: 5px solid #1c1006;
+    border-radius: 2px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
     overflow: hidden;
 }
 
@@ -1026,23 +1017,28 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow:
-        inset 0 0 0 1px rgba(0, 0, 0, 0.35),
-        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
 }
 
+/* Planches de bois : fines striations verticales sur un fond de teinte bois */
 .checkers-square.light {
-    background:
-        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.01 0.4' numOctaves='4' seed='5' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.35 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
-        linear-gradient(135deg, #f5e7c4, #e8d4a2);
-    background-blend-mode: overlay;
+    background-color: #e0b483;
+    background-image:
+        repeating-linear-gradient(90deg,
+            rgba(255, 244, 220, 0.35) 0px, rgba(255, 244, 220, 0.35) 2px,
+            rgba(150, 100, 55, 0.12) 3px, rgba(150, 100, 55, 0.12) 4px,
+            transparent 5px, transparent 11px),
+        linear-gradient(180deg, rgba(255,255,255,0.08), rgba(0,0,0,0.05));
 }
 
 .checkers-square.dark {
-    background:
-        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.01 0.4' numOctaves='4' seed='9' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.4 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
-        linear-gradient(135deg, #7c3f24, #542615);
-    background-blend-mode: overlay;
+    background-color: #7a4526;
+    background-image:
+        repeating-linear-gradient(90deg,
+            rgba(255, 230, 200, 0.10) 0px, rgba(255, 230, 200, 0.10) 2px,
+            rgba(0, 0, 0, 0.18) 3px, rgba(0, 0, 0, 0.18) 4px,
+            transparent 5px, transparent 11px),
+        linear-gradient(180deg, rgba(255,255,255,0.05), rgba(0,0,0,0.12));
     cursor: pointer;
 }
 
@@ -1060,51 +1056,49 @@ body {
     box-shadow: inset 0 0 0 3px var(--accent);
 }
 
+/* Jetons plats et brillants, à anneaux concentriques, comme des pions de dames classiques */
 .checkers-piece {
-    width: 80%;
-    height: 80%;
+    width: 82%;
+    height: 82%;
     border-radius: 50%;
     position: relative;
     box-shadow:
-        3px 5px 4px rgba(0, 0, 0, 0.45),
-        0 7px 10px rgba(0, 0, 0, 0.35),
-        inset 0 -6px 9px rgba(0, 0, 0, 0.35),
-        inset 0 4px 5px rgba(255, 255, 255, 0.25);
+        0 3px 5px rgba(0, 0, 0, 0.4),
+        inset 0 2px 3px rgba(255, 255, 255, 0.35),
+        inset 0 -3px 5px rgba(0, 0, 0, 0.3);
 }
 
 .checkers-piece::before {
     content: "";
     position: absolute;
-    top: 10%;
-    left: 18%;
-    width: 40%;
-    height: 22%;
+    top: 9%;
+    left: 16%;
+    width: 42%;
+    height: 20%;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.45);
     filter: blur(2px);
     pointer-events: none;
 }
 
 .checkers-piece.piece-w {
-    background:
-        repeating-radial-gradient(circle at 50% 45%,
-            #f6e6c2 0%, #f6e6c2 9%,
-            #e8cf9c 10%, #e8cf9c 18%,
-            #f6e6c2 19%, #f6e6c2 27%,
-            #e8cf9c 28%, #e8cf9c 36%,
-            #dcbd82 37%, #dcbd82 100%);
-    border: 2px solid #b8944f;
+    background: repeating-radial-gradient(circle at 50% 50%,
+        #ffffff 0%, #ffffff 12%,
+        #e2e2e2 13%, #e2e2e2 26%,
+        #ffffff 27%, #ffffff 38%,
+        #d4d4d4 39%, #d4d4d4 50%,
+        #f0f0f0 51%, #f0f0f0 100%);
+    border: 2px solid #b8b8b8;
 }
 
 .checkers-piece.piece-b {
-    background:
-        repeating-radial-gradient(circle at 50% 45%,
-            #b06b45 0%, #b06b45 9%,
-            #8a4a2a 10%, #8a4a2a 18%,
-            #b06b45 19%, #b06b45 27%,
-            #8a4a2a 28%, #8a4a2a 36%,
-            #6e3a1f 37%, #6e3a1f 100%);
-    border: 2px solid #5a2f18;
+    background: repeating-radial-gradient(circle at 50% 50%,
+        #2a2a2a 0%, #2a2a2a 12%,
+        #0a0a0a 13%, #0a0a0a 26%,
+        #2a2a2a 27%, #2a2a2a 38%,
+        #000000 39%, #000000 50%,
+        #1c1c1c 51%, #1c1c1c 100%);
+    border: 2px solid #000000;
 }
 
 .checkers-piece.king::after {
@@ -1123,13 +1117,13 @@ body {
 .checkers-piece.playable {
     box-shadow:
         0 0 0 3px #ffd23f, 0 0 12px 3px rgba(255, 210, 63, 0.7),
-        3px 5px 4px rgba(0, 0, 0, 0.45), 0 7px 10px rgba(0, 0, 0, 0.35);
+        0 3px 5px rgba(0, 0, 0, 0.4);
     animation: checkers-playable-pulse 1.4s ease-in-out infinite;
 }
 
 @keyframes checkers-playable-pulse {
-    0%, 100% { box-shadow: 0 0 0 3px #ffd23f, 0 0 10px 2px rgba(255, 210, 63, 0.55), 3px 5px 4px rgba(0,0,0,0.45); }
-    50% { box-shadow: 0 0 0 3px #ffe27a, 0 0 18px 6px rgba(255, 210, 63, 0.9), 3px 5px 4px rgba(0,0,0,0.45); }
+    0%, 100% { box-shadow: 0 0 0 3px #ffd23f, 0 0 10px 2px rgba(255, 210, 63, 0.55), 0 3px 5px rgba(0,0,0,0.4); }
+    50% { box-shadow: 0 0 0 3px #ffe27a, 0 0 18px 6px rgba(255, 210, 63, 0.9), 0 3px 5px rgba(0,0,0,0.4); }
 }
 
 .checkers-controls {
