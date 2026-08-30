@@ -194,6 +194,7 @@
 
     function openGameArea() {
         menuEl.style.display = "none";
+        difficultyPanel.style.display = "none";
         invitePanel.style.display = "none";
         inviteBanner.style.display = "none";
         gameArea.style.display = "block";
