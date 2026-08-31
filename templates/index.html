@@ -16,6 +16,25 @@
 <meta name="apple-mobile-web-app-title" content="MAKSDIV">
 </head>
 <body>
+
+<script>
+// Retour automatique dans le dernier salon actif (utile en PWA : l'app
+// s'ouvre toujours sur cette page d'accueil, même si un salon était en
+// cours). On ne redirige QUE si cette page s'affiche sans message d'erreur
+// (sinon on vient justement d'échouer à rejoindre ce salon : on nettoie
+// la mémorisation pour ne pas boucler dessus indéfiniment).
+(function () {
+    var LAST_ROOM_KEY = "maksdiv_last_room";
+    var hasError = {{ "true" if error else "false" }};
+    var lastRoom = localStorage.getItem(LAST_ROOM_KEY);
+    if (hasError) {
+        localStorage.removeItem(LAST_ROOM_KEY);
+    } else if (lastRoom) {
+        window.location.replace("/join/" + lastRoom);
+    }
+})();
+</script>
+
 <div class="home-wrapper">
     <div class="home-card">
         <h1 class="brand">🍾 Action ou Vérité</h1>
