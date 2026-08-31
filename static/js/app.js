@@ -51,6 +51,10 @@ let heartbeatTimer = null;
 socket.on("joined", (data) => {
     myPseudo = data.pseudo;
     localStorage.setItem(PSEUDO_STORAGE_KEY, myPseudo);
+    // Mémorise aussi CE salon comme "dernier salon visité", globalement
+    // (pas lié à un code précis) : permet de le reproposer depuis l'accueil
+    // si l'utilisateur ferme l'app et la rouvre plus tard.
+    localStorage.setItem("maksdiv_last_room", ROOM_CODE);
     pseudoOverlay.style.display = "none";
     appEl.style.display = "block";
     document.getElementById("my-pseudo-label").textContent = "👤 " + myPseudo;
@@ -700,6 +704,16 @@ socket.on("presence_update", (data) => {
 socket.on("system_message", (data) => {
     console.log(data.message);
 });
+
+// ---------- Quitter le salon ----------
+const leaveRoomBtn = document.getElementById("leave-room-btn");
+if (leaveRoomBtn) {
+    leaveRoomBtn.addEventListener("click", () => {
+        localStorage.removeItem(LAST_ROOM_KEY);
+        localStorage.removeItem(PSEUDO_STORAGE_KEY);
+        window.location.href = "/";
+    });
+}
 
 // ---------- Onglet 4 (Présence) : photo de profil ----------
 const avatarInput = document.getElementById("avatar-input");
