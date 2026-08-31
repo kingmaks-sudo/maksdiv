@@ -105,7 +105,7 @@
     };
 
     // ---------- Score personnel (persisté sur cet appareil) ----------
-    const SCORE_KEY = "maksdiv_checkers_score";
+    const SCORE_KEY = "maksdiv_checkers_score_" + ROOM_CODE;
     function loadScore() {
         try {
             const raw = localStorage.getItem(SCORE_KEY);
