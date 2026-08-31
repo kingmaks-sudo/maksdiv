@@ -158,11 +158,41 @@
         </div>
     </section>
 
+    <!-- Onglet 5 : Ludo -->
+    <section id="tab-ludo" class="tab-panel">
+        <p class="tab-description">Ludo classique (2 à 4 joueurs). Joue contre des bots pour l'instant — le défi entre participants du salon arrive bientôt.</p>
 
-    <!-- Onglet 5 : Présence -->
+        <div id="ludo-mode-menu" class="checkers-menu">
+            <button id="ludo-bots-btn" class="btn-primary">🤖 Jouer avec des bots</button>
+        </div>
+
+        <div id="ludo-playercount-panel" class="checkers-invite-panel" style="display:none;">
+            <h3>Combien de joueurs ?</h3>
+            <button class="btn-secondary checkers-diff-btn ludo-count-btn" data-count="2">2 joueurs</button>
+            <button class="btn-secondary checkers-diff-btn ludo-count-btn" data-count="3">3 joueurs</button>
+            <button class="btn-secondary checkers-diff-btn ludo-count-btn" data-count="4">4 joueurs</button>
+            <button id="ludo-count-back-btn" class="btn-secondary">◀ Retour</button>
+        </div>
+
+        <div id="ludo-game-area" class="checkers-game-area" style="display:none;">
+            <p id="ludo-status" class="turn-indicator"></p>
+            <div id="ludo-board" class="ludo-board"></div>
+            <div class="ludo-dice-zone">
+                <button id="ludo-dice-btn" class="btn-primary">🎲 Lancer le dé</button>
+                <span id="ludo-dice-result" class="ludo-dice-result"></span>
+            </div>
+            <div class="checkers-controls">
+                <button id="ludo-new-game-btn" class="btn-secondary">◀ Nouvelle partie</button>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- Onglet 6 : Présence -->
     <section id="tab-presence" class="tab-panel">
         <div class="my-profile-box">
             <div class="my-avatar-preview" id="my-avatar-preview">?</div>
+
             <div class="my-profile-info">
                 <p class="my-profile-label">Ma photo de profil</p>
                 <p class="my-profile-hint">Facultatif — visible dans le chat et la liste des participants.</p>
@@ -220,6 +250,10 @@
             <span class="nav-icon">⛃</span>
             <span class="nav-label">Dames</span>
         </button>
+        <button class="nav-btn" data-tab="tab-ludo">
+            <span class="nav-icon">🎲</span>
+            <span class="nav-label">Ludo</span>
+        </button>
         <button class="nav-btn" data-tab="tab-presence">
             <span class="nav-icon">🟢</span>
             <span class="nav-label">En ligne</span>
@@ -254,6 +288,8 @@ const ROOM_CODE = "{{ code }}";
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 <script src="{{ url_for('static', filename='js/checkers.js') }}"></script>
 <script src="{{ url_for('static', filename='js/checkers-ui.js') }}"></script>
+<script src="{{ url_for('static', filename='js/ludo.js') }}"></script>
+<script src="{{ url_for('static', filename='js/ludo-ui.js') }}"></script>
 <script src="{{ url_for('static', filename='js/pwa.js') }}"></script>
 </body>
 </html>
