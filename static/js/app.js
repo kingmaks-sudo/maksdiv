@@ -20,6 +20,12 @@ const PSEUDO_STORAGE_KEY = `maksdiv_pseudo_${ROOM_CODE}`;
 const savedPseudo = localStorage.getItem(PSEUDO_STORAGE_KEY);
 let autoJoinAttempted = false;
 
+// Mémorisation du DERNIER salon actif (tous salons confondus) : permet à la
+// page d'accueil de rediriger automatiquement dessus si l'app est fermée
+// puis rouverte (PWA) pendant qu'un salon est toujours en cours.
+const LAST_ROOM_KEY = "maksdiv_last_room";
+localStorage.setItem(LAST_ROOM_KEY, ROOM_CODE);
+
 function attemptJoin(pseudoOverride) {
     const pseudo = pseudoOverride || pseudoInput.value.trim();
     if (!pseudo) return;
