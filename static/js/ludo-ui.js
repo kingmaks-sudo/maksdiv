@@ -214,6 +214,34 @@
             boardEl.appendChild(inner);
         });
 
+        // Flèches indiquant le sens de déplacement à la sortie de chaque maison
+        const ARROW = { red: "↑", blue: "→", yellow: "↓", green: "←" };
+        Engine.COLORS.forEach((color) => {
+            const [r, c] = SHARED_PATH[Engine.ENTRY[color]];
+            const arrow = document.createElement("div");
+            arrow.className = "ludo-entry-arrow ludo-color-text-" + color;
+            arrow.textContent = ARROW[color];
+            arrow.style.gridRow = (r + 1);
+            arrow.style.gridColumn = (c + 1);
+            boardEl.appendChild(arrow);
+        });
+
+        // Étiquette du joueur, en bandeau au-dessus de chaque maison
+        if (state.colors) {
+            const cellPercent = 100 / GRID;
+            state.colors.forEach((color) => {
+                const [br, bc] = YARD_BASE[color];
+                const label = document.createElement("div");
+                label.className = "ludo-yard-label";
+                label.textContent = color === state.myColor ? "Toi" : "Bot (" + COLOR_LABEL[color] + ")";
+                label.style.position = "absolute";
+                label.style.top = (br * cellPercent) + "%";
+                label.style.left = (bc * cellPercent) + "%";
+                label.style.width = (5 * cellPercent) + "%";
+                boardEl.appendChild(label);
+            });
+        }
+
         // Couche pour les pions (positionnés en absolu par-dessus la grille)
         const tokenLayer = document.createElement("div");
         tokenLayer.id = "ludo-token-layer";
@@ -236,11 +264,14 @@
                 if (!rc) return;
                 const [r, c] = rc;
                 const el = document.createElement("div");
-                el.className = "ludo-token ludo-color-" + color;
+                el.className = "ludo-token";
                 el.style.left = (c * cellPercent) + "%";
                 el.style.top = (r * cellPercent) + "%";
                 el.style.width = cellPercent + "%";
                 el.style.height = cellPercent + "%";
+                el.innerHTML =
+                    '<div class="ludo-pawn-base ludo-pawn-fill-' + color + '"></div>' +
+                    '<div class="ludo-pawn-head ludo-pawn-fill-' + color + '"></div>';
 
                 const isMovable = state.awaitingChoice && color === Engine.currentColor(state.game) &&
                     color === state.myColor && state.validTokens.includes(idx);
@@ -271,6 +302,24 @@
         }
     }
 
+    const DICE_PIP_LAYOUT = {
+        1: [4],
+        2: [0, 8],
+        3: [0, 4, 8],
+        4: [0, 2, 6, 8],
+        5: [0, 2, 4, 6, 8],
+        6: [0, 2, 3, 5, 6, 8],
+    };
+    function renderDiceFace(value) {
+        diceResultEl.innerHTML = "";
+        diceResultEl.classList.add("ludo-dice-face");
+        for (let i = 0; i < 9; i++) {
+            const dot = document.createElement("div");
+            dot.className = "ludo-dice-pip" + (DICE_PIP_LAYOUT[value].includes(i) ? " filled" : "");
+            diceResultEl.appendChild(dot);
+        }
+    }
+
     // ---------- Lancer de dé ----------
     diceBtn.addEventListener("click", () => {
         if (diceBtn.disabled) return;
@@ -284,7 +333,7 @@
         state.diceValue = value;
         state.game.consecutiveSixes = value === 6 ? (state.game.consecutiveSixes + 1) : 0;
         sfxDiceRoll();
-        diceResultEl.textContent = "🎲 " + value;
+        renderDiceFace(value);
         diceBtn.disabled = true;
 
         const valid = Engine.movableTokens(state.game, color, value);
