@@ -204,13 +204,13 @@
             }
         }
 
-        // Petits blocs de couleur décoratifs au centre des maisons (zone des pions)
+        // Plateau blanc arrondi sous les 4 pions de chaque maison (comme les vrais plateaux Ludo)
         Engine.COLORS.forEach((color) => {
             const [br, bc] = YARD_BASE[color];
             const inner = document.createElement("div");
-            inner.className = "ludo-yard-inner ludo-color-" + color;
-            inner.style.gridRow = (br + 2) + " / span 1";
-            inner.style.gridColumn = (bc + 2) + " / span 1";
+            inner.className = "ludo-yard-inner";
+            inner.style.gridRow = (br + 1) + " / span 3";
+            inner.style.gridColumn = (bc + 1) + " / span 3";
             boardEl.appendChild(inner);
         });
 
