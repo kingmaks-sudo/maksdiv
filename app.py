@@ -5,6 +5,7 @@ Application web multi-joueurs de divertissement social.
 - Onglet 3 : Présence en ligne
 - Onglet 4 : Invitation (lien + QR code)
 - Onglet 5 : Dames (solo IA ou multijoueur)
+- Onglet 6 : MAKS IA (chatbot Gemini)
 
 Lancement : python app.py
 Puis ouvrir http://localhost:5000
@@ -13,6 +14,7 @@ Puis ouvrir http://localhost:5000
 import eventlet
 eventlet.monkey_patch()
 
+import base64
 import io
 import os
 import random
@@ -29,6 +31,8 @@ from flask import (
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 from flask_socketio import SocketIO, join_room as sio_join_room, leave_room as sio_leave_room, emit
+from google import genai
+from google.genai import types
 
 import database as db
 
@@ -39,6 +43,11 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet",
                      max_http_buffer_size=30 * 1024 * 1024)
 
 db.init_db()
+
+# --- MAKS IA (chatbot Gemini) -------------------------------------------------
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # --- Upload des preuves d'action (photo / vidéo) ----------------------------
 UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
@@ -714,6 +723,60 @@ def handle_private_message(data):
             emit("new_private_message", payload, to=sid)
 
 
+# --- MAKS IA : chatbot Gemini (texte, image, PDF en entrée) ------------------
+
+@socketio.on("send_maks_ia_message")
+def handle_maks_ia_message(data):
+    """Envoie un message (texte + éventuellement une image ou un PDF encodé en
+    base64) à Gemini et renvoie la réponse uniquement à l'expéditeur : c'est
+    une conversation personnelle avec l'IA, pas un chat partagé avec le salon."""
+    code = (data.get("code") or "").upper()
+    message = (data.get("message") or "").strip()[:4000]
+    file_base64 = data.get("file_base64")  # contenu du fichier encodé en base64, sans le préfixe "data:...;base64,"
+    file_mime = data.get("file_mime")      # ex: "image/png", "image/jpeg", "application/pdf"
+    file_name = data.get("file_name")
+
+    room = ROOMS.get(code)
+    if not room:
+        return
+    sender_info = room["players"].get(request.sid)
+    if not sender_info:
+        emit("error_message", {"message": "Tu dois être dans le salon pour utiliser MAKS IA."})
+        return
+
+    if not gemini_client:
+        emit("maks_ia_response", {"error": "MAKS IA n'est pas configuré (clé API manquante côté serveur)."})
+        return
+    if not message and not file_base64:
+        return
+
+    try:
+        contents = []
+        if file_base64 and file_mime:
+            file_bytes = base64.b64decode(file_base64)
+            contents.append(types.Part.from_bytes(data=file_bytes, mime_type=file_mime))
+        if message:
+            contents.append(message)
+
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=contents,
+        )
+        answer = response.text or "(Réponse vide.)"
+    except Exception as e:
+        answer = f"⚠️ Erreur MAKS IA : {e}"
+
+    emit(
+        "maks_ia_response",
+        {
+            "question": message,
+            "file_name": file_name,
+            "answer": answer,
+            "created_at": datetime.utcnow().strftime("%H:%M"),
+        },
+    )
+
+
 # --- Jeu de dames -------------------------------------------------------------
 
 @socketio.on("checkers_invite")
@@ -846,8 +909,6 @@ def handle_disconnect():
             break
 
 
-import os
-
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    socketio.run(app, host="0.0.0.0", port=port)
+    print("Serveur lancé sur http://localhost:5000")
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
