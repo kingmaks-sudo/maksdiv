@@ -415,6 +415,9 @@ def handle_join(data):
             },
         )
 
+# Dictionnaire global pour conserver la mémoire des conversations
+MAKS_SESSIONS = {}
+
 @socketio.on("send_maks_ia_message")
 def handle_maks_ia_message(data):
     code = (data.get("code") or "").upper()
@@ -437,21 +440,36 @@ def handle_maks_ia_message(data):
     if not message and not file_base64:
         return
 
-    try:
-        contents = []
-        if file_base64 and file_mime:
-            file_bytes = base64.b64decode(file_base64)
-            contents.append(types.Part.from_bytes(data=file_bytes, mime_type=file_mime))
-        if message:
-            contents.append(message)
+    session_key = f"{code}_{sender_info['pseudo']}"
+    
+    if session_key not in MAKS_SESSIONS:
+        MAKS_SESSIONS[session_key] = gemini_client.chats.create(model=GEMINI_MODEL)
 
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=contents,
-        )
+    chat = MAKS_SESSIONS[session_key]
+
+    contents = []
+    if file_base64 and file_mime:
+        file_bytes = base64.b64decode(file_base64)
+        contents.append(types.Part.from_bytes(data=file_bytes, mime_type=file_mime))
+    if message:
+        contents.append(message)
+
+    try:
+        # Premier essai avec le modèle principal
+        response = chat.send_message(contents)
         answer = response.text or "(Réponse vide.)"
     except Exception as e:
-        answer = f"⚠️ Erreur MAKS IA : {e}"
+        err_str = str(e)
+        if "503" in err_str or "UNAVAILABLE" in err_str:
+            # En cas de surcharge 503, retry automatique avec le modèle de secours
+            try:
+                fallback_chat = gemini_client.chats.create(model="gemini-2.5-flash")
+                response = fallback_chat.send_message(contents)
+                answer = response.text or "(Réponse vide.)"
+            except Exception as e2:
+                answer = "⚠️ Le service Google IA est momentanément surchargé. Reessaie dans quelques secondes."
+        else:
+            answer = f"⚠️ Erreur MAKS IA : {e}"
 
     emit(
         "maks_ia_response",
@@ -462,6 +480,7 @@ def handle_maks_ia_message(data):
             "created_at": datetime.utcnow().strftime("%H:%M"),
         },
     )
+
 
 
 @socketio.on("spin_bottle")
