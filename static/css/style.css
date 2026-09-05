@@ -1364,3 +1364,192 @@ body {
 }
 
 .ludo-turn-color { font-weight: 700; }
+
+/* ---------- MAKS IA : mise en forme markdown + bouton copier ---------- */
+.maksia-list {
+    max-height: 65vh;
+}
+
+.maksia-markdown {
+    line-height: 1.55;
+}
+
+.maksia-markdown h1,
+.maksia-markdown h2,
+.maksia-markdown h3,
+.maksia-markdown h4 {
+    margin: 14px 0 8px;
+    line-height: 1.3;
+    color: var(--text);
+}
+
+.maksia-markdown h1 { font-size: 1.15rem; }
+.maksia-markdown h2 { font-size: 1.08rem; }
+.maksia-markdown h3 { font-size: 1.02rem; }
+.maksia-markdown h4 { font-size: 0.96rem; }
+
+.maksia-markdown p {
+    margin: 0 0 10px;
+}
+
+.maksia-markdown p:last-child {
+    margin-bottom: 0;
+}
+
+.maksia-markdown strong {
+    color: var(--text);
+    font-weight: 700;
+}
+
+.maksia-markdown ul,
+.maksia-markdown ol {
+    margin: 0 0 10px;
+    padding-left: 20px;
+}
+
+.maksia-markdown li {
+    margin-bottom: 4px;
+}
+
+.maksia-markdown code {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    padding: 2px 5px;
+    font-size: 0.85em;
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.maksia-markdown pre {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    margin: 0 0 10px;
+}
+
+.maksia-markdown pre code {
+    background: none;
+    padding: 0;
+}
+
+.maksia-markdown blockquote {
+    border-left: 3px solid var(--accent);
+    margin: 0 0 10px;
+    padding: 4px 12px;
+    color: var(--text-muted);
+}
+
+.maksia-markdown table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 12px;
+    font-size: 0.85rem;
+    overflow-x: auto;
+    display: block;
+}
+
+.maksia-markdown th,
+.maksia-markdown td {
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+}
+
+.maksia-markdown th {
+    background: var(--bg-card);
+    font-weight: 700;
+    color: var(--text);
+}
+
+.maksia-markdown tr:nth-child(even) td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.maksia-markdown hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 12px 0;
+}
+
+.maksia-markdown a {
+    color: var(--accent2);
+}
+
+.maksia-thinking {
+    color: var(--text-muted);
+    letter-spacing: 2px;
+}
+
+/* ---------- Zone de saisie + pièce jointe ---------- */
+.maksia-form {
+    align-items: center;
+}
+
+.maksia-attach-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.maksia-file-preview {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+.maksia-file-preview button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.maksia-file-tag {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+/* ---------- Bouton copier sous chaque réponse de MAKS IA ---------- */
+.maksia-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 10px;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    padding: 5px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.maksia-copy-btn:hover {
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+.maksia-copy-btn:disabled {
+    opacity: 0.7;
+    cursor: default;
+}
