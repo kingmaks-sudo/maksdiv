@@ -47,7 +47,7 @@ db.init_db()
 # --- MAKS IA (chatbot Gemini) -------------------------------------------------
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # --- Upload des preuves d'action (photo / vidéo) ----------------------------
 UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
@@ -440,6 +440,7 @@ def handle_maks_ia_message(data):
     if not message and not file_base64:
         return
 
+    # Clé unique pour la session conversationnelle
     session_key = f"{code}_{sender_info['pseudo']}"
     
     if session_key not in MAKS_SESSIONS:
@@ -455,19 +456,20 @@ def handle_maks_ia_message(data):
         contents.append(message)
 
     try:
-        # Premier essai avec le modèle principal
         response = chat.send_message(contents)
         answer = response.text or "(Réponse vide.)"
     except Exception as e:
         err_str = str(e)
-        if "503" in err_str or "UNAVAILABLE" in err_str:
-            # En cas de surcharge 503, retry automatique avec le modèle de secours
+        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+            # En cas de quota dépassé, tentative de secours sur le modèle 2.5-flash
             try:
                 fallback_chat = gemini_client.chats.create(model="gemini-2.5-flash")
                 response = fallback_chat.send_message(contents)
                 answer = response.text or "(Réponse vide.)"
-            except Exception as e2:
-                answer = "⚠️ Le service Google IA est momentanément surchargé. Reessaie dans quelques secondes."
+            except Exception:
+                answer = "⏳ Quota quotidien ou limite de requêtes atteint. Reessaie dans une minute !"
+        elif "503" in err_str or "UNAVAILABLE" in err_str:
+            answer = "⚠️ Le service Google IA est temporairement surchargé. Reessaie dans quelques secondes."
         else:
             answer = f"⚠️ Erreur MAKS IA : {e}"
 
@@ -480,6 +482,7 @@ def handle_maks_ia_message(data):
             "created_at": datetime.utcnow().strftime("%H:%M"),
         },
     )
+
 
 
 
