@@ -51,10 +51,6 @@ let heartbeatTimer = null;
 socket.on("joined", (data) => {
     myPseudo = data.pseudo;
     localStorage.setItem(PSEUDO_STORAGE_KEY, myPseudo);
-    // Mémorise aussi CE salon comme "dernier salon visité", globalement
-    // (pas lié à un code précis) : permet de le reproposer depuis l'accueil
-    // si l'utilisateur ferme l'app et la rouvre plus tard.
-    localStorage.setItem("maksdiv_last_room", ROOM_CODE);
     pseudoOverlay.style.display = "none";
     appEl.style.display = "block";
     document.getElementById("my-pseudo-label").textContent = "👤 " + myPseudo;
@@ -64,7 +60,6 @@ socket.on("joined", (data) => {
     heartbeatTimer = setInterval(() => {
         socket.emit("heartbeat", { code: ROOM_CODE });
     }, 20000);
-    loadConfessions();
     loadChatMessages();
 });
 
@@ -436,140 +431,111 @@ socket.on("round_cancelled", (data) => {
     updateTurnUI();
 });
 
-// ---------- Onglet 2 : Confessions ----------
-const confessInput = document.getElementById("confess-input");
-const confessAnon = document.getElementById("confess-anon");
-const confessSubmit = document.getElementById("confess-submit");
-const confessList = document.getElementById("confess-list");
+// ---------- Onglet 2 : MAKS IA ----------
+const maksiaList = document.getElementById("maksia-list");
+const maksiaInput = document.getElementById("maksia-input");
+const maksiaSubmit = document.getElementById("maksia-submit");
+const maksiaFileInput = document.getElementById("maksia-file-input");
+const maksiaFilePreview = document.getElementById("maksia-file-preview");
 
-confessSubmit.addEventListener("click", () => {
-    const message = confessInput.value.trim();
-    if (!message) return;
-    socket.emit("post_confession", {
+let maksiaPendingFile = null; // { base64, mime, name }
+
+maksiaFileInput.addEventListener("change", () => {
+    const file = maksiaFileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        // reader.result ressemble à "data:image/png;base64,AAAA..." : on retire le préfixe.
+        const base64 = reader.result.split(",")[1];
+        maksiaPendingFile = { base64, mime: file.type, name: file.name };
+        maksiaFilePreview.style.display = "flex";
+        maksiaFilePreview.innerHTML = `
+            <span>📎 ${escapeHtml(file.name)}</span>
+            <button id="maksia-file-remove" type="button">✕</button>
+        `;
+        document.getElementById("maksia-file-remove").addEventListener("click", () => {
+            maksiaPendingFile = null;
+            maksiaFileInput.value = "";
+            maksiaFilePreview.style.display = "none";
+            maksiaFilePreview.innerHTML = "";
+        });
+    };
+    reader.readAsDataURL(file);
+});
+
+function sendMaksIaMessage() {
+    const message = maksiaInput.value.trim();
+    if (!message && !maksiaPendingFile) return;
+
+    appendMaksIaMessage("user", message, maksiaPendingFile ? maksiaPendingFile.name : null);
+    appendMaksIaThinking();
+
+    socket.emit("send_maks_ia_message", {
         code: ROOM_CODE,
         pseudo: myPseudo,
         message,
-        anonymous: confessAnon.checked,
-    });
-    confessInput.value = "";
-});
-
-socket.on("new_confession", (data) => {
-    appendConfession(data.id, data.pseudo, data.message, data.created_at, []);
-    scrollConfessionsToBottom();
-});
-
-socket.on("new_comment", (data) => {
-    appendComment(data.confession_id, data.pseudo, data.message, data.created_at);
-    scrollConfessionsToBottom();
-});
-
-// Ajoute une confession EN BAS de la liste (les plus récentes apparaissent
-// en dernier, comme un fil de discussion classique).
-function appendConfession(id, pseudo, message, time, comments) {
-    const item = document.createElement("div");
-    item.className = "confess-item";
-    item.dataset.confessionId = id;
-    item.innerHTML = `
-        <div class="c-header">
-            <span class="c-pseudo">${escapeHtml(pseudo)}</span>
-            <span>${time || ""}</span>
-        </div>
-        <div class="c-body">${escapeHtml(message)}</div>
-        <div class="c-actions">
-            <button class="c-action-btn c-mention-btn" title="Mentionner cette personne">🔗 Mentionner</button>
-            <button class="c-action-btn c-comment-toggle-btn" title="Commenter">💬 Commenter</button>
-        </div>
-        <div class="c-comments"></div>
-        <div class="c-comment-form" style="display:none;">
-            <input type="text" class="c-comment-input" maxlength="300" placeholder="Écris un commentaire...">
-            <button class="btn-secondary c-comment-send-btn">Envoyer</button>
-        </div>
-    `;
-
-    item.querySelector(".c-mention-btn").addEventListener("click", () => {
-        mentionConfession(pseudo);
+        file_base64: maksiaPendingFile ? maksiaPendingFile.base64 : null,
+        file_mime: maksiaPendingFile ? maksiaPendingFile.mime : null,
+        file_name: maksiaPendingFile ? maksiaPendingFile.name : null,
     });
 
-    const toggleBtn = item.querySelector(".c-comment-toggle-btn");
-    const form = item.querySelector(".c-comment-form");
-    toggleBtn.addEventListener("click", () => {
-        form.style.display = form.style.display === "none" ? "flex" : "none";
-        if (form.style.display === "flex") form.querySelector(".c-comment-input").focus();
-    });
-
-    const sendCommentBtn = item.querySelector(".c-comment-send-btn");
-    const commentInput = item.querySelector(".c-comment-input");
-    const sendComment = () => {
-        const message2 = commentInput.value.trim();
-        if (!message2) return;
-        socket.emit("post_comment", {
-            code: ROOM_CODE,
-            confession_id: id,
-            pseudo: myPseudo,
-            message: message2,
-        });
-        commentInput.value = "";
-    };
-    sendCommentBtn.addEventListener("click", sendComment);
-    commentInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") sendComment();
-    });
-
-    confessList.appendChild(item);
-
-    (comments || []).forEach((c) => {
-        const ctime = new Date(c.created_at + "Z").toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-        appendComment(id, c.pseudo, c.message, ctime);
-    });
+    maksiaInput.value = "";
+    maksiaPendingFile = null;
+    maksiaFileInput.value = "";
+    maksiaFilePreview.style.display = "none";
+    maksiaFilePreview.innerHTML = "";
 }
 
-// Insère une référence "@pseudo" dans le champ de saisie principal, pour
-// écrire une nouvelle confession qui mentionne cette personne.
-function mentionConfession(pseudo) {
-    document.querySelector('.nav-btn[data-tab="tab-confess"]').click();
-    const prefix = `@${pseudo} `;
-    if (!confessInput.value.startsWith(prefix)) {
-        confessInput.value = prefix + confessInput.value;
+maksiaSubmit.addEventListener("click", sendMaksIaMessage);
+maksiaInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMaksIaMessage();
+});
+
+function appendMaksIaMessage(role, text, fileName) {
+    const item = document.createElement("div");
+    item.className = "chat-msg" + (role === "user" ? " chat-msg-mine" : "");
+    const fileTag = fileName ? `<div class="maksia-file-tag">📎 ${escapeHtml(fileName)}</div>` : "";
+    item.innerHTML = `
+        <div class="chat-bubble">
+            ${role === "assistant" ? `<div class="chat-pseudo">🧠 MAKS IA</div>` : ""}
+            ${fileTag}
+            <div class="chat-text">${escapeHtml(text || "")}</div>
+        </div>
+    `;
+    maksiaList.appendChild(item);
+    scrollMaksIaToBottom();
+    return item;
+}
+
+let maksiaThinkingEl = null;
+
+function appendMaksIaThinking() {
+    maksiaThinkingEl = document.createElement("div");
+    maksiaThinkingEl.className = "chat-msg";
+    maksiaThinkingEl.innerHTML = `
+        <div class="chat-bubble">
+            <div class="chat-pseudo">🧠 MAKS IA</div>
+            <div class="chat-text maksia-thinking">...</div>
+        </div>
+    `;
+    maksiaList.appendChild(maksiaThinkingEl);
+    scrollMaksIaToBottom();
+}
+
+socket.on("maks_ia_response", (data) => {
+    if (maksiaThinkingEl) {
+        maksiaThinkingEl.remove();
+        maksiaThinkingEl = null;
     }
-    confessInput.focus();
-    confessInput.setSelectionRange(confessInput.value.length, confessInput.value.length);
-}
+    if (data.error) {
+        appendMaksIaMessage("assistant", `⚠️ ${data.error}`);
+        return;
+    }
+    appendMaksIaMessage("assistant", data.answer);
+});
 
-function appendComment(confessionId, pseudo, message, time) {
-    const parent = confessList.querySelector(`.confess-item[data-confession-id="${confessionId}"] .c-comments`);
-    if (!parent) return;
-    const item = document.createElement("div");
-    item.className = "c-comment-item";
-    item.innerHTML = `
-        <span class="c-comment-pseudo">${escapeHtml(pseudo)}</span>
-        <span class="c-comment-body">${escapeHtml(message)}</span>
-        <span class="c-comment-time">${time || ""}</span>
-    `;
-    parent.appendChild(item);
-}
-
-function scrollConfessionsToBottom() {
-    confessList.scrollTop = confessList.scrollHeight;
-}
-
-function loadConfessions() {
-    fetch(`/room/${ROOM_CODE}/confessions`)
-        .then((r) => r.json())
-        .then((rows) => {
-            confessList.innerHTML = "";
-            // Le serveur renvoie déjà les confessions triées du plus ancien
-            // au plus récent (avec leurs commentaires imbriqués).
-            rows.forEach((row) => {
-                const displayName = row.anonymous ? "Anonyme" : row.pseudo;
-                const time = new Date(row.created_at + "Z").toLocaleTimeString("fr-FR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                });
-                appendConfession(row.id, displayName, row.message, time, row.comments);
-            });
-            scrollConfessionsToBottom();
-        });
+function scrollMaksIaToBottom() {
+    maksiaList.scrollTop = maksiaList.scrollHeight;
 }
 
 // ---------- Onglet 3 : Discussion instantanée ----------
@@ -652,7 +618,7 @@ function loadChatMessages() {
         });
 }
 
-// ---------- Onglet 3 : Présence ----------
+// ---------- Onglet 5 : Présence ----------
 const presenceList = document.getElementById("presence-list");
 const presenceBadge = document.getElementById("badge-presence");
 const presenceStrip = document.getElementById("presence-strip");
@@ -705,17 +671,7 @@ socket.on("system_message", (data) => {
     console.log(data.message);
 });
 
-// ---------- Quitter le salon ----------
-const leaveRoomBtn = document.getElementById("leave-room-btn");
-if (leaveRoomBtn) {
-    leaveRoomBtn.addEventListener("click", () => {
-        localStorage.removeItem(LAST_ROOM_KEY);
-        localStorage.removeItem(PSEUDO_STORAGE_KEY);
-        window.location.href = "/";
-    });
-}
-
-// ---------- Onglet 4 (Présence) : photo de profil ----------
+// ---------- Onglet Présence : photo de profil ----------
 const avatarInput = document.getElementById("avatar-input");
 const avatarPreview = document.getElementById("my-avatar-preview");
 const avatarError = document.getElementById("avatar-error");
@@ -753,7 +709,7 @@ avatarInput.addEventListener("change", () => {
         });
 });
 
-// ---------- Onglet 4 : Invitation ----------
+// ---------- Onglet Invitation ----------
 document.getElementById("copy-link-btn").addEventListener("click", () => {
     const input = document.getElementById("invite-link");
     input.select();
