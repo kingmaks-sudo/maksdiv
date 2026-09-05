@@ -85,6 +85,9 @@ ALLOWED_AVATAR_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 #   "spin_turn_index": int  -> index dans spin_order du joueur dont c'est le tour.
 #   "checkers_matches": { match_id: {"players": {pseudo: color}, "starting_color": str} }
 #                 -> parties de dames multijoueur en cours dans ce salon.
+#   "maksia_history": { pseudo: [ {"role": "user"|"assistant", "content": str}, ... ] }
+#                 -> historique de conversation avec MAKS IA, par joueur, pour
+#                 que l'IA se souvienne du contexte (perdu si le serveur redémarre).
 # }
 ROOMS = {}
 
@@ -209,6 +212,7 @@ def create_room():
         "spin_order": None,
         "spin_turn_index": 0,
         "checkers_matches": {},  # match_id -> {"players": {pseudo: color}, "starting_color": str}
+        "maksia_history": {},  # pseudo -> [{"role": "user"|"assistant", "content": str}, ...]
     }
     db.register_room(code, expires_hours=expires_hours, max_players=max_players)
     return redirect(url_for("room_page", code=code))
@@ -733,35 +737,62 @@ def handle_private_message(data):
 
 # --- MAKS IA : chatbot (texte via Groq, image/PDF via Gemini) ----------------
 
-def ask_gemini(message, file_base64, file_mime):
-    """Utilisé quand un fichier (image/PDF) est joint : seul Gemini sait l'analyser."""
+MAKSIA_HISTORY_MAX_MESSAGES = 20  # 10 échanges (user+assistant) conservés par joueur
+MAKSIA_SYSTEM_PROMPT = "Tu es MAKS IA, un assistant utile et concis, tu réponds en français."
+
+
+def get_maksia_history(room, pseudo):
+    return room["maksia_history"].setdefault(pseudo, [])
+
+
+def append_maksia_history(room, pseudo, role, content):
+    history = get_maksia_history(room, pseudo)
+    history.append({"role": role, "content": content})
+    # On garde seulement les derniers échanges pour limiter la taille des requêtes.
+    if len(history) > MAKSIA_HISTORY_MAX_MESSAGES:
+        del history[: len(history) - MAKSIA_HISTORY_MAX_MESSAGES]
+
+
+def ask_gemini(message, file_base64, file_mime, history):
+    """Utilisé quand un fichier (image/PDF) est joint : seul Gemini sait l'analyser.
+    L'historique est reconstitué sous forme de tours de conversation Gemini
+    (role 'user' / 'model') pour que l'IA garde le contexte précédent."""
     if not gemini_client:
         return None, "MAKS IA (analyse de fichier) n'est pas configuré (clé Gemini manquante côté serveur)."
     try:
-        contents = []
+        contents = [
+            types.Content(
+                role=("model" if turn["role"] == "assistant" else "user"),
+                parts=[types.Part.from_text(text=turn["content"])],
+            )
+            for turn in history
+        ]
+
+        current_parts = []
         if file_base64 and file_mime:
             file_bytes = base64.b64decode(file_base64)
-            contents.append(types.Part.from_bytes(data=file_bytes, mime_type=file_mime))
+            current_parts.append(types.Part.from_bytes(data=file_bytes, mime_type=file_mime))
         if message:
-            contents.append(message)
+            current_parts.append(types.Part.from_text(text=message))
+        contents.append(types.Content(role="user", parts=current_parts))
+
         response = gemini_client.models.generate_content(model=GEMINI_MODEL, contents=contents)
         return response.text or "(Réponse vide.)", None
     except Exception as e:
         return None, f"⚠️ Erreur MAKS IA (Gemini) : {e}"
 
 
-def ask_groq(message):
-    """Utilisé pour les messages texte seuls (pas de fichier joint)."""
+def ask_groq(message, history):
+    """Utilisé pour les messages texte seuls (pas de fichier joint).
+    L'historique est simplement rejoué dans la liste 'messages' de l'API."""
     if not groq_client:
         return None, "MAKS IA n'est pas configuré (clé Groq manquante côté serveur)."
     try:
-        completion = groq_client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "Tu es MAKS IA, un assistant utile et concis, tu réponds en français."},
-                {"role": "user", "content": message},
-            ],
-            model=GROQ_MODEL,
-        )
+        messages = [{"role": "system", "content": MAKSIA_SYSTEM_PROMPT}]
+        messages.extend({"role": turn["role"], "content": turn["content"]} for turn in history)
+        messages.append({"role": "user", "content": message})
+
+        completion = groq_client.chat.completions.create(messages=messages, model=GROQ_MODEL)
         return completion.choices[0].message.content or "(Réponse vide.)", None
     except Exception as e:
         return None, f"⚠️ Erreur MAKS IA (Groq) : {e}"
@@ -771,7 +802,8 @@ def ask_groq(message):
 def handle_maks_ia_message(data):
     """Envoie un message à MAKS IA et renvoie la réponse uniquement à
     l'expéditeur : c'est une conversation personnelle avec l'IA, pas un chat
-    partagé avec le salon.
+    partagé avec le salon. L'IA se souvient des échanges précédents de CE
+    joueur dans CE salon (historique gardé en mémoire côté serveur).
     - S'il y a une image ou un PDF joint : passe par Gemini (seul à savoir lire des fichiers).
     - Sinon (texte seul) : passe par Groq en priorité (quota gratuit bien plus large),
       avec repli automatique sur Gemini si Groq n'est pas configuré ou échoue."""
@@ -788,17 +820,27 @@ def handle_maks_ia_message(data):
     if not sender_info:
         emit("error_message", {"message": "Tu dois être dans le salon pour utiliser MAKS IA."})
         return
+    pseudo = sender_info["pseudo"]
 
     if not message and not file_base64:
         return
 
+    history = get_maksia_history(room, pseudo)
+
     if file_base64 and file_mime:
-        answer, error = ask_gemini(message, file_base64, file_mime)
+        answer, error = ask_gemini(message, file_base64, file_mime, history)
     else:
-        answer, error = ask_groq(message)
+        answer, error = ask_groq(message, history)
         if error and gemini_client:
             # Repli automatique sur Gemini si Groq échoue (ex: pas configuré, quota Groq atteint).
-            answer, error = ask_gemini(message, None, None)
+            answer, error = ask_gemini(message, None, None, history)
+
+    # On mémorise l'échange (texte seulement : on ne réinjecte pas le contenu
+    # binaire d'un fichier dans l'historique, seulement une trace textuelle).
+    user_history_entry = message if message else f"[a envoyé un fichier : {file_name}]"
+    append_maksia_history(room, pseudo, "user", user_history_entry)
+    if answer:
+        append_maksia_history(room, pseudo, "assistant", answer)
 
     emit(
         "maks_ia_response",
