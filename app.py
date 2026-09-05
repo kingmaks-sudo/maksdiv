@@ -47,7 +47,7 @@ db.init_db()
 # --- MAKS IA (chatbot Gemini) -------------------------------------------------
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 
 # --- Upload des preuves d'action (photo / vidéo) ----------------------------
 UPLOAD_FOLDER = os.path.join(app.root_path, "static", "uploads")
@@ -61,23 +61,6 @@ os.makedirs(AVATAR_FOLDER, exist_ok=True)
 ALLOWED_AVATAR_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 
 # --- État en mémoire des salons actifs -------------------------------------
-# ROOMS[code] = {
-#   "players": { sid: {"pseudo": str, "last_seen": ts, "status": "online"} },
-#   "used_questions": [ids],
-#   "last_spin": pseudo|None,
-#   "max_players": int|None,
-#   "pending": {
-#       "sid": str, "pseudo": str, "category": "action"|"verite",
-#       "intensity": str, "question_text": str, "started_at": ts,
-#   } | None   -> manche en cours : tant que ce n'est pas None, la bouteille
-#                 est bloquée pour tout le salon jusqu'à ce que le joueur
-#                 désigné réponde (vérité) ou envoie sa preuve (action).
-#   "spin_order": [pseudo, ...] | None  -> ordre de passage pour APPUYER sur la
-#                 bouteille, tiré aléatoirement une seule fois au premier lancer.
-#   "spin_turn_index": int  -> index dans spin_order du joueur dont c'est le tour.
-#   "checkers_matches": { match_id: {"players": {pseudo: color}, "starting_color": str} }
-#                 -> parties de dames multijoueur en cours dans ce salon.
-# }
 ROOMS = {}
 
 HEARTBEAT_TIMEOUT = 60  # secondes avant de considérer un joueur "inactif"
@@ -177,8 +160,6 @@ def health_check():
 
 @app.route("/sw.js")
 def service_worker():
-    # Servi depuis la racine (et pas /static/sw.js) pour que la portée du
-    # service worker couvre tout le site, pas seulement /static/.
     response = send_from_directory(
         os.path.join(app.root_path, "static"), "sw.js", mimetype="application/javascript"
     )
@@ -200,7 +181,7 @@ def create_room():
         "pending": None,
         "spin_order": None,
         "spin_turn_index": 0,
-        "checkers_matches": {},  # match_id -> {"players": {pseudo: color}, "starting_color": str}
+        "checkers_matches": {},
     }
     db.register_room(code, expires_hours=expires_hours, max_players=max_players)
     return redirect(url_for("room_page", code=code))
@@ -208,7 +189,6 @@ def create_room():
 
 @app.route("/join/<code>")
 def join_link(code):
-    """Point d'entrée pour un lien d'invitation direct."""
     code = code.upper()
     if not room_exists(code):
         return render_template("index.html", error=f"Le salon {code} n'existe pas ou a expiré.")
@@ -261,7 +241,6 @@ def room_confessions(code):
 
 @app.route("/room/<code>/messages")
 def room_messages(code):
-    """Historique du chat instantané, avec l'avatar actuel de chaque pseudo."""
     code = code.upper()
     if not room_exists(code):
         abort(404)
@@ -271,10 +250,9 @@ def room_messages(code):
         m["avatar_url"] = avatars.get(m["pseudo"])
     return jsonify(messages)
 
+
 @app.route("/room/<code>/private_messages/<other_pseudo>")
 def room_private_messages(code):
-    """Historique de la conversation privée entre l'utilisateur courant
-    (retrouvé via la session) et un autre pseudo du même salon."""
     code = code.upper()
     if not room_exists(code):
         abort(404)
@@ -292,7 +270,6 @@ def allowed_action_file(filename):
 
 @app.route("/room/<code>/submit_action", methods=["POST"])
 def submit_action(code):
-    """Réception de la preuve (photo/vidéo) pour une manche 'Action' en cours."""
     code = code.upper()
     room = ROOMS.get(code)
     if not room:
@@ -341,7 +318,6 @@ def handle_too_large(e):
 
 @app.route("/room/<code>/set_avatar", methods=["POST"])
 def set_avatar(code):
-    """Upload (ou remplacement) de la photo de profil d'un joueur du salon."""
     code = code.upper()
     room = ROOMS.get(code)
     if not room:
@@ -366,10 +342,8 @@ def set_avatar(code):
 
     avatar_url = url_for("static", filename=f"avatars/{code}/{unique_name}")
 
-    # Persisté en base pour survivre aux redémarrages/reconnexions.
     db.set_profile_avatar(code, pseudo, avatar_url)
 
-    # Mise à jour immédiate de l'état en mémoire pour ce joueur (peu importe son sid).
     for info in room["players"].values():
         if info["pseudo"].lower() == pseudo.lower():
             info["avatar_url"] = avatar_url
@@ -394,17 +368,12 @@ def handle_join(data):
 
     room = ROOMS[code]
 
-    # Vérifier la limite de places
     if room["max_players"] and len(room["players"]) >= room["max_players"]:
         already_in = any(p["pseudo"] == pseudo for p in room["players"].values())
         if not already_in:
             emit("error_message", {"message": "Le salon est complet."})
             return
 
-    # Vérifier l'unicité du pseudo dans le salon.
-    # Si un ancien sid porte déjà ce pseudo, on considère qu'il s'agit d'une
-    # RECONNEXION (Socket.IO change de sid à chaque reconnexion) et on
-    # remplace l'ancienne entrée au lieu de bloquer le joueur.
     for old_sid, info in list(room["players"].items()):
         if info["pseudo"].lower() == pseudo.lower() and old_sid != request.sid:
             del room["players"][old_sid]
@@ -419,9 +388,6 @@ def handle_join(data):
     session["pseudo"] = pseudo
     session["code"] = code
 
-    # Si la partie a déjà commencé (ordre de passage établi) et que ce pseudo
-    # n'y figure pas encore (nouveau joueur en cours de partie), on l'ajoute
-    # à la fin de la file — il aura son tour plus tard, sans perturber l'ordre déjà tiré.
     if room.get("spin_order") and pseudo not in room["spin_order"]:
         room["spin_order"].append(pseudo)
 
@@ -433,14 +399,10 @@ def handle_join(data):
         to=code,
     )
 
-    # On informe ce client précis (et tout le salon, au cas où la liste a
-    # changé) de qui a la main pour lancer la bouteille.
     emit("turn_update", {"pseudo": get_current_turn_pseudo(room)})
     if room.get("spin_order"):
         broadcast_turn(code)
 
-    # Si une manche était déjà en cours (ex: reconnexion après coupure réseau),
-    # on renvoie son état à ce client précis pour qu'il retrouve l'UI de blocage.
     pending = room.get("pending")
     if pending:
         emit(
@@ -479,7 +441,6 @@ def handle_spin(data):
         emit("error_message", {"message": "Il faut au moins 2 joueurs pour lancer la bouteille."})
         return
 
-    # Premier lancer de la partie : on tire l'ordre de passage une seule fois.
     if not room.get("spin_order"):
         pseudos = [p["pseudo"] for p in players]
         random.shuffle(pseudos)
@@ -499,7 +460,6 @@ def handle_spin(data):
     chosen = random.choice(players)
     room["last_spin"] = chosen["pseudo"]
 
-    # Angle de rotation aléatoire pour l'animation côté client (plusieurs tours + offset)
     rotation_degrees = random.randint(3, 6) * 360 + random.randint(0, 359)
 
     emit(
@@ -508,7 +468,6 @@ def handle_spin(data):
         to=code,
     )
 
-    # Le lancer a été utilisé : on passe la main au joueur suivant dans l'ordre.
     advance_turn(room)
     broadcast_turn(code)
 
@@ -516,8 +475,8 @@ def handle_spin(data):
 @socketio.on("make_choice")
 def handle_choice(data):
     code = (data.get("code") or "").upper()
-    choice = data.get("choice")  # 'action' ou 'verite'
-    intensity = data.get("intensity", "leger")  # 'leger', 'ose', 'tres_ose'
+    choice = data.get("choice")
+    intensity = data.get("intensity", "leger")
     pseudo = data.get("pseudo", "?")
 
     room = ROOMS.get(code)
@@ -528,7 +487,6 @@ def handle_choice(data):
         emit("error_message", {"message": "Choix invalide."})
         return
 
-    # Seul le joueur désigné par la bouteille peut choisir, et une seule fois.
     player_info = room["players"].get(request.sid)
     if not player_info or player_info["pseudo"] != room.get("last_spin"):
         emit("error_message", {"message": "Ce n'est pas ton tour."})
@@ -539,7 +497,6 @@ def handle_choice(data):
 
     question = db.get_random_question(choice, intensity, exclude_ids=room["used_questions"])
     if question is None:
-        # Toutes les questions ont été utilisées : on réinitialise le cycle pour cette catégorie
         room["used_questions"] = []
         question = db.get_random_question(choice, intensity, exclude_ids=[])
 
@@ -549,8 +506,6 @@ def handle_choice(data):
 
     room["used_questions"].append(question["id"])
 
-    # Ouvre la manche : bloque la bouteille pour tout le monde jusqu'à
-    # ce que le joueur désigné réponde (vérité) ou envoie sa preuve (action).
     room["pending"] = {
         "sid": request.sid,
         "pseudo": pseudo,
@@ -584,8 +539,7 @@ def handle_truth_answer(data):
 
     pending = room.get("pending")
     player_info = room["players"].get(request.sid)
-    if not pending or pending["category"] != "verite" or not player_info \
-            or player_info["pseudo"] != pending["pseudo"]:
+    if not pending or pending["category"] != "verite" or not player_info             or player_info["pseudo"] != pending["pseudo"]:
         emit("error_message", {"message": "Aucune manche 'vérité' en attente pour toi."})
         return
     if not answer:
@@ -657,7 +611,6 @@ def handle_comment(data):
 
 @socketio.on("send_chat_message")
 def handle_chat_message(data):
-    """Discussion instantanée : diffusion immédiate à tout le salon (+ historique en base)."""
     code = (data.get("code") or "").upper()
     message = (data.get("message") or "").strip()[:1000]
 
@@ -688,8 +641,6 @@ def handle_chat_message(data):
 
 @socketio.on("send_private_message")
 def handle_private_message(data):
-    """Message privé entre deux joueurs d'un même salon. Diffusé uniquement
-    aux sockets des deux personnes concernées (pas à tout le salon)."""
     code = (data.get("code") or "").upper()
     recipient = (data.get("recipient") or "").strip()[:24]
     message = (data.get("message") or "").strip()[:1000]
@@ -716,8 +667,6 @@ def handle_private_message(data):
         "created_at": datetime.utcnow().strftime("%H:%M"),
     }
 
-    # Envoi uniquement au destinataire (tous ses sids, en cas de multi-onglets)
-    # et à l'expéditeur lui-même (pour que son propre message s'affiche aussi).
     for sid, info in room["players"].items():
         if info["pseudo"].lower() in (sender.lower(), recipient.lower()):
             emit("new_private_message", payload, to=sid)
@@ -727,13 +676,10 @@ def handle_private_message(data):
 
 @socketio.on("send_maks_ia_message")
 def handle_maks_ia_message(data):
-    """Envoie un message (texte + éventuellement une image ou un PDF encodé en
-    base64) à Gemini et renvoie la réponse uniquement à l'expéditeur : c'est
-    une conversation personnelle avec l'IA, pas un chat partagé avec le salon."""
     code = (data.get("code") or "").upper()
     message = (data.get("message") or "").strip()[:4000]
-    file_base64 = data.get("file_base64")  # contenu du fichier encodé en base64, sans le préfixe "data:...;base64,"
-    file_mime = data.get("file_mime")      # ex: "image/png", "image/jpeg", "application/pdf"
+    file_base64 = data.get("file_base64")
+    file_mime = data.get("file_mime")
     file_name = data.get("file_name")
 
     room = ROOMS.get(code)
@@ -781,7 +727,6 @@ def handle_maks_ia_message(data):
 
 @socketio.on("checkers_invite")
 def handle_checkers_invite(data):
-    """Un joueur invite un autre pseudo du même salon à une partie de dames."""
     code = (data.get("code") or "").upper()
     to_pseudo = (data.get("to_pseudo") or "").strip()
     room = ROOMS.get(code)
@@ -799,9 +744,8 @@ def handle_checkers_invite(data):
 
 @socketio.on("checkers_decline")
 def handle_checkers_decline(data):
-    """Le joueur invité refuse la partie."""
     code = (data.get("code") or "").upper()
-    from_pseudo = (data.get("from_pseudo") or "").strip()  # celui qui avait invité
+    from_pseudo = (data.get("from_pseudo") or "").strip()
     room = ROOMS.get(code)
     if not room:
         return
@@ -816,16 +760,15 @@ def handle_checkers_decline(data):
 
 @socketio.on("checkers_accept")
 def handle_checkers_accept(data):
-    """Le joueur invité accepte : on crée le match et on prévient les deux joueurs."""
     code = (data.get("code") or "").upper()
-    from_pseudo = (data.get("from_pseudo") or "").strip()  # celui qui avait invité
+    from_pseudo = (data.get("from_pseudo") or "").strip()
     room = ROOMS.get(code)
     if not room:
         return
     accepter_info = room["players"].get(request.sid)
     if not accepter_info:
         return
-    to_pseudo = accepter_info["pseudo"]  # celui qui accepte
+    to_pseudo = accepter_info["pseudo"]
 
     match_id = uuid.uuid4().hex[:8]
     players = {from_pseudo: "w", to_pseudo: "b"}
@@ -840,7 +783,6 @@ def handle_checkers_accept(data):
 
 @socketio.on("checkers_move")
 def handle_checkers_move(data):
-    """Relaie un tour complet (from + liste de sauts) à l'adversaire du même match."""
     code = (data.get("code") or "").upper()
     match_id = data.get("match_id")
     from_pos = data.get("from")
@@ -863,7 +805,6 @@ def handle_checkers_move(data):
 
 @socketio.on("checkers_resign")
 def handle_checkers_resign(data):
-    """Un joueur abandonne la partie en cours."""
     code = (data.get("code") or "").upper()
     match_id = data.get("match_id")
     room = ROOMS.get(code)
@@ -891,13 +832,9 @@ def handle_disconnect():
             emit("presence_update", {"players": get_players_list(code)}, to=code)
             emit("system_message", {"message": f"{pseudo} a quitté le salon."}, to=code)
 
-            # Retire le joueur de l'ordre de passage de la bouteille (s'il y
-            # figurait) et notifie le salon du tour éventuellement mis à jour.
             remove_from_spin_order(room, pseudo)
             broadcast_turn(code)
 
-            # Si le joueur qui partait était en pleine manche, on débloque
-            # le salon pour ne pas laisser tout le monde bloqué indéfiniment.
             pending = room.get("pending")
             if pending and pending["sid"] == request.sid:
                 room["pending"] = None
