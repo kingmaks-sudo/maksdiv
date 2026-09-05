@@ -97,17 +97,17 @@
         <div id="round-result-zone" class="round-result" style="display:none;"></div>
     </section>
 
-    <!-- Onglet 2 : Confessions -->
-    <section id="tab-confess" class="tab-panel">
-        <p class="tab-description">Partage librement quelque chose sur toi. Espace d'auto-expression volontaire : on parle de soi, pas des autres.</p>
-        <div class="confess-form">
-            <textarea id="confess-input" maxlength="500" placeholder="Écris ta confession ou ton partage..."></textarea>
-            <div class="confess-controls">
-                <label><input type="checkbox" id="confess-anon"> Publier en anonyme</label>
-                <button id="confess-submit" class="btn-primary">Publier</button>
-            </div>
+    <!-- Onglet 2 : MAKS IA -->
+    <section id="tab-maksia" class="tab-panel">
+        <p class="tab-description">Discute avec MAKS IA : pose une question, ou envoie une image / un PDF à analyser.</p>
+        <div id="maksia-list" class="chat-list maksia-list"></div>
+        <div id="maksia-file-preview" class="maksia-file-preview" style="display:none;"></div>
+        <div class="chat-form maksia-form">
+            <label for="maksia-file-input" class="maksia-attach-btn" title="Joindre une image ou un PDF">📎</label>
+            <input type="file" id="maksia-file-input" accept="image/png,image/jpeg,image/webp,application/pdf" style="display:none;">
+            <input type="text" id="maksia-input" maxlength="4000" placeholder="Écris ton message...">
+            <button id="maksia-submit" class="btn-primary">➤</button>
         </div>
-        <div id="confess-list" class="confess-list"></div>
     </section>
 
     <!-- Onglet 3 : Discussion instantanée -->
@@ -122,20 +122,10 @@
     <!-- Onglet 4 : Dames -->
     <section id="tab-checkers" class="tab-panel">
         <p class="tab-description">Dames françaises (10x10), prise obligatoire. Joue seul contre l'ordinateur ou défie un autre participant du salon.</p>
-        <div id="checkers-score-line" class="checkers-score-line"></div>
 
         <div id="checkers-mode-menu" class="checkers-menu">
             <button id="checkers-solo-btn" class="btn-primary">🤖 Jouer contre l'ordinateur</button>
             <button id="checkers-multi-btn" class="btn-secondary">👥 Défier un participant</button>
-        </div>
-
-        <div id="checkers-difficulty-panel" class="checkers-invite-panel" style="display:none;">
-            <h3>Choisis le niveau</h3>
-            <button id="checkers-diff-beginner" class="btn-secondary checkers-diff-btn">🌱 Débutant</button>
-            <button id="checkers-diff-hard" class="btn-secondary checkers-diff-btn">⚔️ Difficile</button>
-            <button id="checkers-diff-expert" class="btn-secondary checkers-diff-btn">🔥 Expert</button>
-            <button id="checkers-diff-master" class="btn-secondary checkers-diff-btn">👑 Maître</button>
-            <button id="checkers-difficulty-back-btn" class="btn-secondary">◀ Retour</button>
         </div>
 
         <div id="checkers-invite-panel" class="checkers-invite-panel" style="display:none;">
@@ -149,21 +139,17 @@
         <div id="checkers-game-area" class="checkers-game-area" style="display:none;">
             <p id="checkers-status" class="turn-indicator"></p>
             <div id="checkers-board" class="checkers-board"></div>
-            <div id="checkers-confetti-layer" class="checkers-confetti-layer"></div>
             <div class="checkers-controls">
                 <button id="checkers-resign-btn" class="btn-secondary">🏳️ Abandonner</button>
-                <button id="checkers-rematch-btn" class="btn-primary" style="display:none;">🔁 Revanche</button>
                 <button id="checkers-new-game-btn" class="btn-secondary">◀ Nouvelle partie</button>
             </div>
         </div>
     </section>
 
-
-    <!-- Onglet 6 : Présence -->
+    <!-- Onglet 5 : Présence -->
     <section id="tab-presence" class="tab-panel">
         <div class="my-profile-box">
             <div class="my-avatar-preview" id="my-avatar-preview">?</div>
-
             <div class="my-profile-info">
                 <p class="my-profile-label">Ma photo de profil</p>
                 <p class="my-profile-hint">Facultatif — visible dans le chat et la liste des participants.</p>
@@ -175,8 +161,6 @@
         <h3>Participants connectés</h3>
         <p class="tab-description">Appuie sur un participant pour lui envoyer un message privé.</p>
         <ul id="presence-list" class="presence-list"></ul>
-
-        <button id="leave-room-btn" class="btn-secondary leave-room-btn">🚪 Quitter ce salon</button>
     </section>
 
     <!-- Onglet 6 : Invitation -->
@@ -208,9 +192,9 @@
             <span class="nav-icon">🍾</span>
             <span class="nav-label">Jeu</span>
         </button>
-        <button class="nav-btn" data-tab="tab-confess">
-            <span class="nav-icon">💬</span>
-            <span class="nav-label">Confessions</span>
+        <button class="nav-btn" data-tab="tab-maksia">
+            <span class="nav-icon">🧠</span>
+            <span class="nav-label">MAKS IA</span>
         </button>
         <button class="nav-btn" data-tab="tab-chat">
             <span class="nav-icon">🗨️</span>
