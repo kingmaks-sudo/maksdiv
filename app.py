@@ -415,13 +415,53 @@ def handle_join(data):
             },
         )
 
-
-@socketio.on("heartbeat")
-def handle_heartbeat(data):
+@socketio.on("send_maks_ia_message")
+def handle_maks_ia_message(data):
     code = (data.get("code") or "").upper()
+    message = (data.get("message") or "").strip()[:4000]
+    file_base64 = data.get("file_base64")
+    file_mime = data.get("file_mime")
+    file_name = data.get("file_name")
+
     room = ROOMS.get(code)
-    if room and request.sid in room["players"]:
-        room["players"][request.sid]["last_seen"] = time.time()
+    if not room:
+        return
+    sender_info = room["players"].get(request.sid)
+    if not sender_info:
+        emit("error_message", {"message": "Tu dois être dans le salon pour utiliser MAKS IA."})
+        return
+
+    if not gemini_client:
+        emit("maks_ia_response", {"error": "MAKS IA n'est pas configuré (clé API manquante côté serveur)."})
+        return
+    if not message and not file_base64:
+        return
+
+    try:
+        contents = []
+        if file_base64 and file_mime:
+            file_bytes = base64.b64decode(file_base64)
+            contents.append(types.Part.from_bytes(data=file_bytes, mime_type=file_mime))
+        if message:
+            contents.append(message)
+
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=contents,
+        )
+        answer = response.text or "(Réponse vide.)"
+    except Exception as e:
+        answer = f"⚠️ Erreur MAKS IA : {e}"
+
+    emit(
+        "maks_ia_response",
+        {
+            "question": message,
+            "file_name": file_name,
+            "answer": answer,
+            "created_at": datetime.utcnow().strftime("%H:%M"),
+        },
+    )
 
 
 @socketio.on("spin_bottle")
