@@ -491,18 +491,51 @@ maksiaInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") sendMaksIaMessage();
 });
 
+function renderMaksIaMarkdown(text) {
+    // Convertit le markdown (titres, gras, listes, tableaux...) en HTML, puis
+    // nettoie ce HTML pour éviter tout risque avant de l'insérer dans la page.
+    try {
+        const rawHtml = marked.parse(text || "");
+        return DOMPurify.sanitize(rawHtml);
+    } catch (e) {
+        return escapeHtml(text || "");
+    }
+}
+
 function appendMaksIaMessage(role, text, fileName) {
     const item = document.createElement("div");
     item.className = "chat-msg" + (role === "user" ? " chat-msg-mine" : "");
     const fileTag = fileName ? `<div class="maksia-file-tag">📎 ${escapeHtml(fileName)}</div>` : "";
+    const isAssistant = role === "assistant";
+    const bodyHtml = isAssistant
+        ? renderMaksIaMarkdown(text)
+        : escapeHtml(text || "");
+
     item.innerHTML = `
         <div class="chat-bubble">
-            ${role === "assistant" ? `<div class="chat-pseudo">🧠 MAKS IA</div>` : ""}
+            ${isAssistant ? `<div class="chat-pseudo">🧠 MAKS IA</div>` : ""}
             ${fileTag}
-            <div class="chat-text">${escapeHtml(text || "")}</div>
+            <div class="chat-text${isAssistant ? " maksia-markdown" : ""}">${bodyHtml}</div>
+            ${isAssistant ? `<button class="maksia-copy-btn" type="button">📋 Copier</button>` : ""}
         </div>
     `;
     maksiaList.appendChild(item);
+
+    if (isAssistant) {
+        const copyBtn = item.querySelector(".maksia-copy-btn");
+        copyBtn.addEventListener("click", () => {
+            navigator.clipboard.writeText(text || "").then(() => {
+                const original = copyBtn.textContent;
+                copyBtn.textContent = "✅ Copié";
+                copyBtn.disabled = true;
+                setTimeout(() => {
+                    copyBtn.textContent = original;
+                    copyBtn.disabled = false;
+                }, 1500);
+            });
+        });
+    }
+
     scrollMaksIaToBottom();
     return item;
 }
